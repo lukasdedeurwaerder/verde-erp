@@ -20,14 +20,18 @@ export default async function Overzicht() {
   let qLeveranciers = supabase.from("relaties").select("id", { count: "exact", head: true }).eq("actief", true).in("soort", ["leverancier", "beide"]);
   let qProducten = supabase.from("producten").select("id", { count: "exact", head: true }).eq("actief", true);
   let qLaag = supabase.from("producten").select("id, naam, voorraad, min_voorraad, eenheid, bedrijf_id").eq("actief", true).eq("voorraad_bijhouden", true);
+  let qOpen = supabase.from("bestellingen").select("id", { count: "exact", head: true }).in("status", ["nieuw", "in_behandeling", "klaar"]);
+  let qConcept = supabase.from("documenten").select("id", { count: "exact", head: true }).eq("status", "concept");
   if (b) {
     qKlanten = qKlanten.eq("bedrijf_id", b);
     qLeveranciers = qLeveranciers.eq("bedrijf_id", b);
     qProducten = qProducten.eq("bedrijf_id", b);
     qLaag = qLaag.eq("bedrijf_id", b);
+    qOpen = qOpen.eq("bedrijf_id", b);
+    qConcept = qConcept.eq("bedrijf_id", b);
   }
 
-  const [klanten, leveranciers, producten, laag] = await Promise.all([qKlanten, qLeveranciers, qProducten, qLaag]);
+  const [klanten, leveranciers, producten, laag, open, concept] = await Promise.all([qKlanten, qLeveranciers, qProducten, qLaag, qOpen, qConcept]);
 
   const laagLijst = ((laag.data ?? []) as Pick<Product, "id" | "naam" | "voorraad" | "min_voorraad" | "eenheid" | "bedrijf_id">[])
     .filter((p) => Number(p.voorraad) <= Number(p.min_voorraad))
@@ -60,6 +64,16 @@ export default async function Overzicht() {
         <Link href="/producten" className="tegel">
           <div className="tegel__label">Producten</div>
           <div className="tegel__getal">{producten.count ?? 0}</div>
+        </Link>
+        <Link href="/bestellingen" className="tegel">
+          <div className="tegel__label">Open bestellingen</div>
+          <div className="tegel__getal">{open.count ?? 0}</div>
+          <div className="tegel__sub">nieuw, in behandeling of klaar</div>
+        </Link>
+        <Link href="/documenten" className="tegel">
+          <div className="tegel__label">Documenten in concept</div>
+          <div className="tegel__getal">{concept.count ?? 0}</div>
+          <div className="tegel__sub">nog definitief te maken</div>
         </Link>
       </div>
 

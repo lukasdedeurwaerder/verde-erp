@@ -14,7 +14,7 @@ ziet en beheert alles.
 ## Fasering
 
 1. ✅ Opzet, login, rollen, bedrijfskeuze, fiches (klanten, leveranciers, producten met foto)
-2. Bestellingen met verantwoordelijke en kanban, offertes en bestelbonnen als pdf
+2. ✅ Bestellingen met verantwoordelijke en kanban, offertes en bestelbonnen als pdf
 3. Leverbonnen, ontvangstbonnen, voorraad, facturen en creditnota's als pdf
 4. Dagboeken aankopen, verkopen en financieel, met live balans en resultatenrekening
 5. Docentenpaneel (rekeningenstelsel, logboek) en afwerking
