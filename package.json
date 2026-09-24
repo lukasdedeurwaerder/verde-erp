@@ -10,7 +10,7 @@
     "migreer": "node scripts/migreer.js",
     "docent": "node scripts/maak-gebruiker.js",
     "test:databank": "node scripts/test-databank.js",
-    "test:acties": "node scripts/test-acties.js",
+    "test:acties": "node scripts/test-acties.js http://localhost:3100",
     "test:live": "node scripts/test-acties.js https://verde-ondernemen.vercel.app"
   },
   "dependencies": {

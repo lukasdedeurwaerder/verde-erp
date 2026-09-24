@@ -64,4 +64,3 @@ npm.cmd run test:live
 ```
 
 Doet op de echte site wat de knoppen doen: leverbon, factuur, creditnota, voorraad.
-Vraagt een lokale build (`npm.cmd run build`) om de acties te herkennen.

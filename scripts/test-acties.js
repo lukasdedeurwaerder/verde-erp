@@ -1,21 +1,34 @@
 // Test van de SERVERACTIES: precies wat de knoppen in de app doen.
 //
-//   npm.cmd run build
-//   npx.cmd next start -p 3100          (in een ander venster)
-//   npm.cmd run test:acties
+//   npm.cmd run test:acties -- http://localhost:3100   (lokale server)
+//   npm.cmd run test:live                              (de echte site)
 //
 // Roept de acties aan zoals de browser dat doet (met de kop Next-Action
 // en de sessiecookie van een tijdelijk studentenaccount) en controleert
 // daarna in de databank wat er gebeurd is. Werkt in een tijdelijk
 // testbedrijf dat na afloop volledig verdwijnt.
 
-const path = require("node:path");
 const { sql, check, maakTestomgeving, ruimOp, sessieCookie, einde } = require("./testhulp");
 
 const SITE = process.argv[2] || "http://localhost:3100";
-const manifest = require(path.join(__dirname, "..", ".next", "server", "server-reference-manifest.json"));
+
+/**
+ * De code van elke actie verschilt per build. We halen ze daarom van de
+ * site zelf: de JavaScript van een pagina bevat voor elke actie die de
+ * pagina gebruikt een regel createServerReference("<code>", ..., "<naam>").
+ */
 const ACTIE = {};
-for (const [id, e] of Object.entries(manifest.node)) ACTIE[e.exportedName] = id;
+const gelezen = new Set();
+async function leesActies(pagina, cookie) {
+  const html = await (await fetch(SITE + pagina, { headers: { cookie } })).text();
+  const bronnen = [...html.matchAll(/src="(\/_next\/static\/chunks\/[^"]+\.js)"/g)].map((m) => m[1]);
+  for (const bron of bronnen) {
+    if (gelezen.has(bron)) continue;
+    gelezen.add(bron);
+    const js = await (await fetch(SITE + bron)).text();
+    for (const m of js.matchAll(/createServerReference\)\("([0-9a-f]+)",[^)]*?"(\w+)"\)/g)) ACTIE[m[2]] = m[1];
+  }
+}
 
 /**
  * Een serveractie aanroepen. Gewone argumenten gaan als JSON; een
@@ -23,6 +36,8 @@ for (const [id, e] of Object.entries(manifest.node)) ACTIE[e.exportedName] = id;
  * waarin "$K1" naar de formuliervelden met voorvoegsel "_1_" verwijst.
  */
 async function actie(cookie, pagina, naam, args, formulier) {
+  if (!ACTIE[naam]) await leesActies(pagina, cookie);
+  if (!ACTIE[naam]) throw new Error(`Actie ${naam} niet gevonden op ${pagina}`);
   const kop = { "Next-Action": ACTIE[naam], cookie, Origin: SITE, Accept: "text/x-component" };
   let body;
   if (formulier) {
