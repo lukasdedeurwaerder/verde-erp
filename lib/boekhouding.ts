@@ -44,8 +44,11 @@ export async function documentenMetSaldo(
   const docs = (data ?? []) as unknown as (Omit<OpenDocument, "gecrediteerd" | "openstaand" | "relatie"> & { relaties: { naam: string } | null })[];
 
   const credit = new Map<string, number>();
-  if (soort === "factuur" && docs.length > 0) {
-    let cq = supabase.from("documenten").select("bron_document_id, totaal_incl").eq("soort", "creditnota").eq("status", "definitief");
+  if (docs.length > 0) {
+    // Creditnota's verminderen wat er openstaat: die van klanten bij een
+    // factuur, die van leveranciers bij een aankoopfactuur.
+    const creditSoort = soort === "factuur" ? "creditnota" : "aankoopcreditnota";
+    let cq = supabase.from("documenten").select("bron_document_id, totaal_incl").eq("soort", creditSoort).eq("status", "definitief");
     if (bedrijfId) cq = cq.eq("bedrijf_id", bedrijfId);
     const { data: cns } = await cq;
     for (const c of cns ?? []) {

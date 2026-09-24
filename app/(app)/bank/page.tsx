@@ -146,8 +146,8 @@ export default async function BankPagina({ searchParams }: { searchParams: Promi
                 Voor <strong>{ctx.bedrijf.naam}</strong>.
               </p>
               <BankFormulier
-                facturen={facturen.filter((f) => f.openstaand > 0).map((f) => ({ id: f.id, nummer: f.nummer, relatie: f.relatie, openstaand: f.openstaand }))}
-                aankopen={aankopen.filter((f) => f.openstaand > 0).map((f) => ({ id: f.id, nummer: f.nummer, relatie: f.relatie, openstaand: f.openstaand, extern: f.extern_nummer }))}
+                facturen={facturen.filter((f) => f.openstaand !== 0).map((f) => ({ id: f.id, nummer: f.nummer, relatie: f.relatie, openstaand: f.openstaand }))}
+                aankopen={aankopen.filter((f) => f.openstaand !== 0).map((f) => ({ id: f.id, nummer: f.nummer, relatie: f.relatie, openstaand: f.openstaand, extern: f.extern_nummer }))}
                 rekeningen={reks.filter((r) => !["550", "400", "440"].includes(r.nummer))}
                 vandaag={vandaag()}
                 document={document ?? null}

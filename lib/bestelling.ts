@@ -94,7 +94,7 @@ export const VERGRENDELT_BESTELLING: DocumentSoort[] = ["leverbon", "ontvangstbo
 
 /** Waar je een document bekijkt: aankoopfacturen hebben een eigen scherm. */
 export function documentPad(d: { id: string; soort: DocumentSoort }): string {
-  return d.soort === "aankoopfactuur" ? `/aankopen/${d.id}` : `/documenten/${d.id}`;
+  return d.soort === "aankoopfactuur" || d.soort === "aankoopcreditnota" ? `/aankopen/${d.id}` : `/documenten/${d.id}`;
 }
 
 export const DAGBOEK_LABEL: Record<"verkoop" | "aankoop" | "financieel" | "divers", { naam: string; code: string }> = {

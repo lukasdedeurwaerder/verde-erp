@@ -34,7 +34,7 @@ export default async function DocumentenPagina({
   let query = supabase
     .from("documenten")
     .select("*, relaties(naam)")
-    .neq("soort", "aankoopfactuur")
+    .not("soort", "in", "(aankoopfactuur,aankoopcreditnota)")
     .order("datum", { ascending: false })
     .order("aangemaakt_op", { ascending: false });
   if (ctx.bedrijf) query = query.eq("bedrijf_id", ctx.bedrijf.id);

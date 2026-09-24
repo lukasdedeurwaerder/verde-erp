@@ -52,7 +52,7 @@ export default async function DocumentPagina({ params }: { params: Promise<{ id:
     .eq("id", id)
     .maybeSingle();
   if (!data) notFound();
-  if (data.soort === "aankoopfactuur") redirect(`/aankopen/${id}`);
+  if (data.soort === "aankoopfactuur" || data.soort === "aankoopcreditnota") redirect(`/aankopen/${id}`);
   const d = data as unknown as Rij;
   const lijnen = [...(d.documentlijnen ?? [])].sort((a, b) => a.volgorde - b.volgorde);
   const som = totalen(lijnen);

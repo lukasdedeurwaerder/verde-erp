@@ -20,7 +20,7 @@ export default async function AankopenPagina({ searchParams }: { searchParams: P
   let q = supabase
     .from("documenten")
     .select("*, relaties(naam)")
-    .eq("soort", "aankoopfactuur")
+    .in("soort", ["aankoopfactuur", "aankoopcreditnota"])
     .order("datum", { ascending: false })
     .order("aangemaakt_op", { ascending: false });
   if (ctx.bedrijf) q = q.eq("bedrijf_id", ctx.bedrijf.id);
@@ -30,7 +30,7 @@ export default async function AankopenPagina({ searchParams }: { searchParams: P
   let rijen = (data ?? []) as unknown as Rij[];
   if (filter === "open") rijen = rijen.filter((d) => d.status === "definitief" && (open.get(d.id) ?? 0) > 0);
   if (filter === "concept") rijen = rijen.filter((d) => d.status === "concept");
-  const totaalOpen = saldi.reduce((t, s) => t + s.openstaand, 0);
+  const totaalOpen = saldi.reduce((t, s) => t + Math.max(s.openstaand, 0), 0);
   const vandaagIso = vandaag();
   const bedrijfVan = (id: string) => ctx.bedrijven.find((b) => b.id === id);
 
@@ -105,6 +105,12 @@ export default async function AankopenPagina({ searchParams }: { searchParams: P
                     <Link href={`/aankopen/${d.id}`} className="rij">
                       {d.nummer}
                     </Link>
+                    {d.soort === "aankoopcreditnota" && (
+                      <>
+                        {" "}
+                        <span className="badge">creditnota</span>
+                      </>
+                    )}
                   </td>
                   {!ctx.bedrijf && (
                     <td>
@@ -124,9 +130,17 @@ export default async function AankopenPagina({ searchParams }: { searchParams: P
                   <td>
                     <span className={DOCUMENT_STATUS_KLASSE[d.status]}>{DOCUMENT_STATUS_LABEL[d.status]}</span>
                   </td>
-                  <td className="getal">{euro(d.totaal_incl)}</td>
+                  <td className="getal">{d.soort === "aankoopcreditnota" ? `− ${euro(d.totaal_incl)}` : euro(d.totaal_incl)}</td>
                   <td className="getal">
-                    {rest === undefined ? "" : rest > 0 ? euro(rest) : <span className="badge badge--goed">betaald</span>}
+                    {rest === undefined ? (
+                      ""
+                    ) : rest > 0 ? (
+                      euro(rest)
+                    ) : rest < 0 ? (
+                      <span className="badge badge--waarschuwing">{euro(-rest)} terug</span>
+                    ) : (
+                      <span className="badge badge--goed">betaald</span>
+                    )}
                   </td>
                 </tr>
               );

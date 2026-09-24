@@ -7,9 +7,11 @@ import {
   bedrijfOpslaan,
   gebruikerAanmaken,
   gebruikerBijwerken,
+  gebruikersBulk,
   gebruikerVerwijderen,
   instellingenOpslaan,
   wachtwoordInstellen,
+  type BulkStatus,
   type Status,
 } from "./acties";
 
@@ -189,17 +191,17 @@ export function GebruikerRij({
     <>
       <tr style={{ opacity: p.actief ? 1 : 0.6 }}>
         <td>
-          <input form={formId} name="naam" className="veld" defaultValue={p.naam} required />
+          <input form={formId} name="naam" className="veld" defaultValue={p.naam} required style={{ minWidth: 160 }} />
           <div className="hulptekst">{p.email}</div>
         </td>
         <td>
-          <select form={formId} name="rol" className="veld" defaultValue={p.rol} disabled={isIkzelf}>
+          <select form={formId} name="rol" className="veld" defaultValue={p.rol} disabled={isIkzelf} style={{ minWidth: 110 }}>
             <option value="student">Student</option>
             <option value="docent">Docent</option>
           </select>
         </td>
         <td>
-          <select form={formId} name="bedrijf_id" className="veld" defaultValue={p.bedrijf_id ?? ""} disabled={isIkzelf}>
+          <select form={formId} name="bedrijf_id" className="veld" defaultValue={p.bedrijf_id ?? ""} disabled={isIkzelf} style={{ minWidth: 140 }}>
             <option value="">—</option>
             {bedrijven.map((b) => (
               <option key={b.id} value={b.id}>
@@ -248,5 +250,58 @@ export function GebruikerRij({
         </tr>
       )}
     </>
+  );
+}
+
+// ---------- Meerdere accounts tegelijk ----------
+
+export function GebruikersBulkFormulier({ bedrijven }: { bedrijven: Bedrijf[] }) {
+  const [status, actie] = useActionState<BulkStatus, FormData>(gebruikersBulk, {});
+  const ok = (status.resultaten ?? []).filter((r) => r.ok).length;
+  return (
+    <form action={actie} className="formulier">
+      {status.fout && <p className="foutmelding">{status.fout}</p>}
+      {status.resultaten && (
+        <div className={ok === status.resultaten.length ? "melding-goed" : "melding-info"}>
+          {ok} van {status.resultaten.length} accounts aangemaakt.
+          {status.resultaten.some((r) => !r.ok) && (
+            <ul style={{ margin: "6px 0 0", paddingLeft: 20 }}>
+              {status.resultaten
+                .filter((r) => !r.ok)
+                .map((r) => (
+                  <li key={r.regel}>
+                    <code>{r.regel}</code>: {r.melding}
+                  </li>
+                ))}
+            </ul>
+          )}
+        </div>
+      )}
+      <div className="formulier__rij">
+        <label htmlFor="bulk-regels">Eén student per regel: naam; e-mailadres; bedrijf</label>
+        <textarea
+          id="bulk-regels"
+          name="regels"
+          className="veld"
+          style={{ minHeight: 140, fontFamily: "ui-monospace, Consolas, monospace", fontSize: 13 }}
+          placeholder={`Emma Janssens; emma.janssens@student.be; A
+Noah Claes; noah.claes@student.be; B`}
+        />
+        <span className="hulptekst">
+          Het bedrijf is A of B ({bedrijven.map((b, i) => `${String.fromCharCode(65 + i)} = ${b.naam}`).join(", ")}) of de naam
+          van het bedrijf. Rechtstreeks uit Excel plakken kan ook: drie kolommen, zonder titelrij.
+        </span>
+      </div>
+      <div className="formulier__kolommen formulier__kolommen--3">
+        <div className="formulier__rij">
+          <label htmlFor="bulk-ww">Startwachtwoord voor iedereen</label>
+          <input id="bulk-ww" name="wachtwoord" className="veld" minLength={8} required autoComplete="off" />
+        </div>
+        <div className="formulier__rij">
+          <label>&nbsp;</label>
+          <Knop tekst="Accounts aanmaken" />
+        </div>
+      </div>
+    </form>
   );
 }

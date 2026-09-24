@@ -19,7 +19,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   let bytes: Uint8Array | null = null;
 
   // Een aankoopfactuur maken we niet zelf: we tonen de pdf van de leverancier.
-  if (d.soort === "aankoopfactuur") {
+  if (d.soort === "aankoopfactuur" || d.soort === "aankoopcreditnota") {
     if (!d.pdf_pad) return new NextResponse("Geen bijlage", { status: 404 });
     const { data } = await supabase.storage.from("documenten").download(d.pdf_pad);
     if (!data) return new NextResponse("Bijlage niet gevonden", { status: 404 });

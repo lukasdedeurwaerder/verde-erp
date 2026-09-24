@@ -5,6 +5,7 @@ import {
   BedrijfFormulier,
   GebruikerNieuwFormulier,
   GebruikerRij,
+  GebruikersBulkFormulier,
   InstellingenFormulier,
 } from "./Formulieren";
 
@@ -59,6 +60,13 @@ export default async function InstellingenPagina() {
         </div>
         <h3 style={{ marginBottom: 10 }}>Nieuw account</h3>
         <GebruikerNieuwFormulier bedrijven={ctx.bedrijven} />
+      </div>
+
+      <div className="kaart">
+        <div className="kaart__kop">
+          <h2>Meerdere studenten tegelijk</h2>
+        </div>
+        <GebruikersBulkFormulier bedrijven={ctx.bedrijven} />
       </div>
 
       {ctx.bedrijven.map((b) => (

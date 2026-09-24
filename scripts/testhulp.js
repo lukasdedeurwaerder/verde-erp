@@ -35,6 +35,7 @@ function check(naam, ok, extra = "") {
 /** Maak `aantal` testbedrijven, elk met één studentenaccount. */
 async function maakTestomgeving(aantal) {
   await ruimRestenOp();
+  await ruimTestdocentenOp();
   const stempel = Date.now().toString(36);
   const bedrijven = [];
   for (let i = 0; i < aantal; i++) {
@@ -113,6 +114,32 @@ async function ruimRestenOp() {
   console.log(`(${lijst.length} achtergebleven testbedrijf/-bedrijven opgeruimd)`);
 }
 
+/** Achtergebleven testaccounts zonder bedrijf (testdocenten). */
+async function ruimTestdocentenOp() {
+  const resten = await sql`select id from profielen where bedrijf_id is null and email like '%@verde-test.invalid'`;
+  for (const r of resten) await admin.auth.admin.deleteUser(r.id);
+}
+
+/**
+ * Een tijdelijk docentenaccount, om de docentenschermen te testen. Het
+ * ziet (zoals elke docent) de echte gegevens, maar verandert er niets aan.
+ * Verwijder het met admin.auth.admin.deleteUser(id).
+ */
+async function maakTestdocent() {
+  const email = `test-${Date.now().toString(36)}-docent@verde-test.invalid`;
+  const { data, error } = await admin.auth.admin.createUser({
+    email,
+    password: WACHTWOORD,
+    email_confirm: true,
+    user_metadata: { naam: "Testdocent", rol: "docent" },
+  });
+  if (error) throw error;
+  const client = createClient(URL_, ANON, { auth: { persistSession: false } });
+  const { data: sessie, error: fout } = await client.auth.signInWithPassword({ email, password: WACHTWOORD });
+  if (fout) throw fout;
+  return { gebruikerId: data.user.id, sessie: sessie.session };
+}
+
 /** Cookie zoals @supabase/ssr hem zet, om de echte site aan te spreken. */
 function sessieCookie(sessie) {
   const ref = URL_.match(/https:\/\/([a-z0-9]+)\./)[1];
@@ -129,4 +156,4 @@ async function einde() {
   process.exit(fouten ? 1 : 0);
 }
 
-module.exports = { admin, sql, check, maakTestomgeving, ruimOp, ruimRestenOp, sessieCookie, einde, WACHTWOORD };
+module.exports = { admin, sql, check, maakTestomgeving, maakTestdocent, ruimOp, ruimRestenOp, ruimTestdocentenOp, sessieCookie, einde, WACHTWOORD };

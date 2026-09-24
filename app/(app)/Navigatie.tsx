@@ -18,13 +18,18 @@ const ONDERDELEN: { pad: string; naam: string; kop?: string }[] = [
   { pad: "/rapporten", naam: "Balans en resultaat" },
 ];
 
+const HULP = [{ pad: "/hulp", naam: "Hoe werkt het?", kop: "Hulp" }];
+
 const DOCENT: { pad: string; naam: string; kop?: string }[] = [
-  { pad: "/instellingen", naam: "Instellingen", kop: "Docent" },
+  { pad: "/docent", naam: "Docentenpaneel", kop: "Docent" },
+  { pad: "/logboek", naam: "Logboek" },
+  { pad: "/rekeningen", naam: "Rekeningenstelsel" },
+  { pad: "/instellingen", naam: "Instellingen" },
 ];
 
 export function Navigatie({ isDocent }: { isDocent: boolean }) {
   const pad = usePathname();
-  const items = isDocent ? [...ONDERDELEN, ...DOCENT] : ONDERDELEN;
+  const items = isDocent ? [...ONDERDELEN, ...DOCENT, ...HULP] : [...ONDERDELEN, ...HULP];
 
   return (
     <>

@@ -17,7 +17,7 @@ ziet en beheert alles.
 2. ✅ Bestellingen met verantwoordelijke en kanban, offertes en bestelbonnen als pdf
 3. ✅ Leverbonnen, ontvangstbonnen, voorraad, facturen en creditnota's als pdf
 4. ✅ Dagboeken aankopen, verkopen en financieel, met live balans en resultatenrekening
-5. Docentenpaneel (rekeningenstelsel, logboek) en afwerking
+5. ✅ Docentenpaneel, logboek, rekeningenstelsel, aankoopcreditnota, accounts in bulk, hulppagina
 
 Het datamodel voor alle fases staat al volledig in
 `supabase/migrations/0001_schema.sql`.
@@ -40,7 +40,8 @@ Het datamodel voor alle fases staat al volledig in
    ```
 
 5. Start lokaal met `npm.cmd run dev` en log in. Studentenaccounts maak je
-   daarna aan onder **Instellingen → Gebruikers**.
+   daarna aan onder **Instellingen**, één voor één of met een lijst
+   (naam; e-mail; A of B per regel).
 
 ## Beveiliging in de databank
 

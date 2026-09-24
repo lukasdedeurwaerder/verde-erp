@@ -10,6 +10,7 @@ import type { Document, Lijn } from "@/lib/types";
 import type { ProductKeuze } from "../bestellingen/LijnenEditor";
 import { BOEKING_SELECT, BoekingWeergave, type BoekingMetLijnen } from "../dagboeken/BoekingWeergave";
 import { AankoopFormulier } from "./Formulier";
+import { CreditnotaKnop } from "./CreditnotaKnop";
 
 type Rij = Document & {
   documentlijnen: Lijn[];
@@ -27,7 +28,7 @@ export async function AankoopBewerken({ id }: { id: string | null }) {
       .from("documenten")
       .select("*, documentlijnen(*), relaties(naam), bestellingen(id, jaar, nummer)")
       .eq("id", id)
-      .eq("soort", "aankoopfactuur")
+      .in("soort", ["aankoopfactuur", "aankoopcreditnota"])
       .maybeSingle();
     if (!data) notFound();
     d = data as unknown as Rij;
@@ -45,11 +46,20 @@ export async function AankoopBewerken({ id }: { id: string | null }) {
   }
   const lijnen = [...(d?.documentlijnen ?? [])].sort((a, b) => a.volgorde - b.volgorde);
   const bedrijf = ctx.bedrijven.find((b) => b.id === bedrijfId);
+  const credit = d?.soort === "aankoopcreditnota";
+  const soortNaam = credit ? "Creditnota van leverancier" : "Aankoopfactuur";
+
+  // Bij een creditnota: de aankoopfactuur waar ze bij hoort.
+  let bron: { id: string; nummer: string | null; extern_nummer: string | null } | null = null;
+  if (d?.bron_document_id) {
+    const { data: b } = await supabase.from("documenten").select("id, nummer, extern_nummer").eq("id", d.bron_document_id).maybeSingle();
+    bron = b ?? null;
+  }
 
   const kop = (
     <div className="schermkop">
       <div>
-        <h1>{d ? `Aankoopfactuur ${d.nummer}` : "Aankoopfactuur registreren"}</h1>
+        <h1>{d ? `${soortNaam} ${d.nummer}` : "Aankoopfactuur registreren"}</h1>
         <p>
           {bedrijf?.naam}
           {d?.relaties && ` · ${d.relaties.naam}`}
@@ -62,6 +72,11 @@ export async function AankoopBewerken({ id }: { id: string | null }) {
         </p>
       </div>
       <div className="schermkop__acties">
+        {bron && (
+          <Link href={`/aankopen/${bron.id}`} className="knop">
+            ← Aankoopfactuur {bron.nummer}
+          </Link>
+        )}
         {d?.bestellingen && (
           <Link href={`/bestellingen/${d.bestellingen.id}`} className="knop">
             ← Bestelling {bestellingNummer(d.bestellingen)}
@@ -86,8 +101,9 @@ export async function AankoopBewerken({ id }: { id: string | null }) {
         {kop}
         {d && (
           <p className="melding-info" style={{ marginBottom: 16 }}>
-            Concept. Controleer de lijnen met de factuur van de leverancier en maak ze dan definitief: ze komt in het dagboek
-            aankopen.
+            {credit
+              ? `Concept. Deze creditnota vermindert aankoopfactuur ${bron?.nummer ?? ""}${bron?.extern_nummer ? ` (${bron.extern_nummer})` : ""}. Houd de lijnen over die de leverancier crediteert en maak ze dan definitief.`
+              : "Concept. Controleer de lijnen met de factuur van de leverancier en maak ze dan definitief: ze komt in het dagboek aankopen."}
           </p>
         )}
         <AankoopFormulier
@@ -106,11 +122,13 @@ export async function AankoopBewerken({ id }: { id: string | null }) {
   const som = totalen(lijnen);
   const reks = await rekeningen(supabase);
   const rekNaam = new Map(reks.map((r) => [r.id, `${r.nummer} ${r.naam}`]));
-  const [{ data: boekingen }, saldi] = await Promise.all([
+  const [{ data: boekingen }, saldi, { data: cns }] = await Promise.all([
     supabase.from("boekingen").select(BOEKING_SELECT).eq("document_id", d.id).order("datum").order("aangemaakt_op"),
     documentenMetSaldo(supabase, "aankoopfactuur", d.bedrijf_id),
+    supabase.from("documenten").select("id, nummer, extern_nummer, status, totaal_incl").eq("bron_document_id", d.id).order("aangemaakt_op"),
   ]);
   const saldo = saldi.find((s) => s.id === d!.id);
+  const creditnotas = (cns ?? []) as { id: string; nummer: string; extern_nummer: string | null; status: string; totaal_incl: number }[];
   const bk = (boekingen ?? []) as unknown as BoekingMetLijnen[];
 
   return (
@@ -120,6 +138,14 @@ export async function AankoopBewerken({ id }: { id: string | null }) {
         <div>
           <div className="kaart">
             <div className="formulier__kolommen formulier__kolommen--3" style={{ marginBottom: 14 }}>
+              {bron && (
+                <div>
+                  <div className="label">Betreft aankoopfactuur</div>
+                  <div>
+                    <Link href={`/aankopen/${bron.id}`}>{bron.nummer}</Link>
+                  </div>
+                </div>
+              )}
               <div>
                 <div className="label">Nummer leverancier</div>
                 <div>{d.extern_nummer}</div>
@@ -166,7 +192,7 @@ export async function AankoopBewerken({ id }: { id: string | null }) {
                     <td className="getal">{euro(som.excl)}</td>
                   </tr>
                   <tr>
-                    <td>Aftrekbare btw</td>
+                    <td>{credit ? "Btw" : "Aftrekbare btw"}</td>
                     <td className="getal">{euro(som.btw)}</td>
                   </tr>
                   <tr className="totalen__incl">
@@ -190,9 +216,14 @@ export async function AankoopBewerken({ id }: { id: string | null }) {
 
         <div className="kaart">
           <div className="kaart__kop">
-            <h2>Betaling</h2>
+            <h2>{credit ? "Creditnota" : "Betaling"}</h2>
           </div>
-          {saldo && saldo.openstaand > 0 ? (
+          {credit ? (
+            <p className="hulptekst">
+              Deze creditnota vermindert wat er op aankoopfactuur {bron?.nummer} te betalen is. Was die al betaald, dan boek je
+              de terugbetaling van de leverancier bij Bank, op de aankoopfactuur.
+            </p>
+          ) : saldo && saldo.openstaand > 0 ? (
             <>
               <p>
                 Nog te betalen: <strong>{euro(saldo.openstaand)}</strong>
@@ -204,10 +235,43 @@ export async function AankoopBewerken({ id }: { id: string | null }) {
                 Betaling boeken
               </Link>
             </>
+          ) : saldo && saldo.openstaand < 0 ? (
+            <>
+              <p>
+                Te veel betaald: de leverancier moet <strong>{euro(-saldo.openstaand)}</strong> terugbetalen.
+              </p>
+              <Link href={`/bank?document=${d.id}`} className="knop knop--primair" style={{ width: "100%", marginTop: 12 }}>
+                Terugbetaling boeken
+              </Link>
+            </>
           ) : (
             <p>
               <span className="badge badge--goed">Volledig betaald</span>
             </p>
+          )}
+          {!credit && (
+            <>
+              {creditnotas.length > 0 && (
+                <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
+                  <span className="label">Creditnota&apos;s van de leverancier</span>
+                  {creditnotas.map((c) => (
+                    <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 14 }}>
+                      <span>
+                        <Link href={`/aankopen/${c.id}`} style={{ whiteSpace: "nowrap" }}>
+                          {c.nummer}
+                        </Link>
+                        <br />
+                        <span className="hulptekst">
+                          {c.extern_nummer} · {c.status === "definitief" ? "definitief" : "concept"}
+                        </span>
+                      </span>
+                      <span style={{ whiteSpace: "nowrap" }}>− {euro(c.totaal_incl)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <CreditnotaKnop factuurId={d.id} />
+            </>
           )}
           {d.pdf_pad && (
             <a href={`/documenten/${d.id}/pdf`} target="_blank" rel="noopener" className="knop" style={{ width: "100%", marginTop: 12 }}>

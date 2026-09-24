@@ -42,6 +42,7 @@ export function AankoopFormulier({
   const [s2, definitief] = useActionState<AankoopStatus, FormData>(async () => (d ? aankoopfactuurDefinitief(d.id) : {}), {});
   const [s3, verwijder] = useActionState<AankoopStatus, FormData>(async () => (d ? aankoopfactuurVerwijderen(d.id) : {}), {});
   const fout = status.fout ?? s2.fout ?? s3.fout;
+  const credit = d?.soort === "aankoopcreditnota";
 
   return (
     <div className="kaart">
@@ -52,7 +53,8 @@ export function AankoopFormulier({
         <div className="formulier__kolommen formulier__kolommen--3">
           <div className="formulier__rij" style={{ gridColumn: "span 2" }}>
             <label htmlFor="relatie_id">Leverancier *</label>
-            <select id="relatie_id" name="relatie_id" className="veld" defaultValue={d?.relatie_id ?? ""} required>
+            {credit && <input type="hidden" name="relatie_id" value={d?.relatie_id ?? ""} />}
+            <select id="relatie_id" name={credit ? undefined : "relatie_id"} className="veld" defaultValue={d?.relatie_id ?? ""} required disabled={credit}>
               <option value="">— kies —</option>
               {leveranciers.map((l) => (
                 <option key={l.id} value={l.id}>
@@ -67,14 +69,14 @@ export function AankoopFormulier({
             )}
           </div>
           <div className="formulier__rij">
-            <label htmlFor="extern_nummer">Factuurnummer leverancier *</label>
+            <label htmlFor="extern_nummer">{credit ? "Nummer creditnota leverancier *" : "Factuurnummer leverancier *"}</label>
             <input id="extern_nummer" name="extern_nummer" className="veld" defaultValue={d?.extern_nummer ?? ""} placeholder="zoals op hun factuur" />
           </div>
         </div>
 
         <div className="formulier__kolommen formulier__kolommen--3">
           <div className="formulier__rij">
-            <label htmlFor="datum">Factuurdatum *</label>
+            <label htmlFor="datum">{credit ? "Datum *" : "Factuurdatum *"}</label>
             <input id="datum" name="datum" type="date" className="veld" defaultValue={d?.datum ?? vandaag} required />
           </div>
           <div className="formulier__rij">
@@ -108,6 +110,7 @@ export function AankoopFormulier({
 
         <div className="formulier__acties">
           <Knop tekst={d ? "Bewaren" : "Aankoopfactuur registreren"} />
+          {credit && <span className="hulptekst">Houd enkel de lijnen over die de leverancier crediteert.</span>}
           <Link href="/aankopen" className="knop">
             {d ? "← Overzicht" : "Annuleren"}
           </Link>
@@ -117,7 +120,10 @@ export function AankoopFormulier({
       {d && (
         <div className="formulier__acties" style={{ marginTop: 16, borderTop: "1px solid var(--rand-zacht)", paddingTop: 16 }}>
           <form action={definitief}>
-            <Knop tekst="Definitief maken en boeken" bevestig="Definitief maken? De factuur komt in het dagboek aankopen en kan daarna niet meer gewijzigd worden. Bewaar eerst je wijzigingen." />
+            <Knop
+              tekst="Definitief maken en boeken"
+              bevestig={`Definitief maken? De ${credit ? "creditnota" : "factuur"} komt in het dagboek aankopen en kan daarna niet meer gewijzigd worden. Bewaar eerst je wijzigingen.`}
+            />
           </form>
           <form action={verwijder}>
             <Knop tekst="Concept verwijderen" klasse="knop knop--gevaar" bevestig="Dit concept verwijderen?" />

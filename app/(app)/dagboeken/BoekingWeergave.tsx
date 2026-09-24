@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { boekingNummer, datum, DAGBOEK_LABEL } from "@/lib/bestelling";
+import { boekingNummer, datum, DAGBOEK_LABEL, documentPad } from "@/lib/bestelling";
 import { euro } from "@/lib/geld";
-import type { Boeking, Boekingslijn } from "@/lib/types";
+import type { Boeking, Boekingslijn, DocumentSoort } from "@/lib/types";
 
 export type BoekingMetLijnen = Boeking & {
   boekingslijnen: Boekingslijn[];
@@ -20,11 +20,7 @@ export function BoekingWeergave({
   actie?: React.ReactNode;
 }) {
   const lijnen = [...b.boekingslijnen].sort((x, y) => x.volgorde - y.volgorde || Number(y.debet) - Number(x.debet));
-  const docPad = b.documenten
-    ? b.documenten.soort === "aankoopfactuur"
-      ? `/aankopen/${b.documenten.id}`
-      : `/documenten/${b.documenten.id}`
-    : null;
+  const docPad = b.documenten ? documentPad(b.documenten as { id: string; soort: DocumentSoort }) : null;
 
   return (
     <div className="boeking">

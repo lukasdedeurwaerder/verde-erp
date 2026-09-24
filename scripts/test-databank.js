@@ -191,6 +191,39 @@ const { admin, check, maakTestomgeving, ruimOp, einde } = require("./testhulp");
     const { error: eGedeeld } = await cB.rpc("gedeelde_bankrekening", {});
     check("gedeelde bankrekening leesbaar", !eGedeeld, eGedeeld && eGedeeld.message);
 
+    // ---------- Aankoopcreditnota (fase 5) ----------
+    const { data: acn } = await cA.from("documenten").insert({ bedrijf_id: A.id, soort: "aankoopcreditnota", relatie_id: lev.id, bron_document_id: af.id }).select().single();
+    check("aankoopcreditnota krijgt nummer ACN-jaar-0001", /^ACN-\d{4}-0001$/.test(acn.nummer), acn.nummer);
+    await cA.from("documentlijnen").insert({ document_id: acn.id, rekening_id: r["610"], omschrijving: "Korting huur", aantal: 1, eenheidsprijs: 10, btw_tarief: 21 });
+    const { error: eAcnZonder } = await cA.rpc("document_definitief", { p_id: acn.id });
+    check("aankoopcreditnota zonder nummer leverancier geweigerd", !!eAcnZonder, eAcnZonder && eAcnZonder.message);
+    await cA.from("documenten").update({ extern_nummer: "CN-55" }).eq("id", acn.id);
+    const { error: eAcn } = await cA.rpc("document_definitief", { p_id: acn.id });
+    check("aankoopcreditnota definitief", !eAcn, eAcn && eAcn.message);
+    const bacn = await lijnenVan(acn.id, "aankoop");
+    check("aankoopcreditnota omgekeerd: 440 D 12,10 / 610 C 10 / 411 C 2,10", bacn && bacn["440"] === 12.1 && bacn["610"] === -10 && bacn["411"] === -2.1, JSON.stringify(bacn));
+    check("aankoopfactuur was betaald: nu 12,10 te veel", (await open(af.id)) === -12.1, String(await open(af.id)));
+    const { error: eTerug } = await cA.rpc("betaling_boeken", { p_bedrijf: A.id, p_datum: "2026-09-30", p_uittreksel: "5", p_omschrijving: "", p_bedrag: 12.1, p_document: af.id, p_rekening: null });
+    check("leverancier betaalt 12,10 terug", !eTerug && (await open(af.id)) === 0, eTerug ? eTerug.message : String(await open(af.id)));
+
+    // ---------- Logboek (fase 5) ----------
+    const { data: log } = await cA.from("logboek").select("actie, onderwerp, gebruiker_id").eq("bedrijf_id", A.id);
+    const heeft = (actie, woord) => log.some((l) => l.actie === actie && (l.onderwerp ?? "").includes(woord) && l.gebruiker_id === A.gebruikerId);
+    check("logboek: klant aangemaakt door A", heeft("aangemaakt", "Testklant"));
+    check("logboek: factuur definitief", heeft("definitief", "F-"));
+    check("logboek: bankverrichting", heeft("aangemaakt", "Bankverrichting"));
+    check("logboek: geen regels voor automatische voorraadupdates", !log.some((l) => l.actie === "gewijzigd" && (l.onderwerp ?? "").startsWith("Product")));
+    const { error: eLogSchrijf } = await cA.from("logboek").insert({ bedrijf_id: A.id, actie: "vals", onderwerp: "x" });
+    check("student kan niet in het logboek schrijven", !!eLogSchrijf);
+    await cA.from("logboek").delete().eq("bedrijf_id", A.id);
+    const { count: nogLog } = await admin.from("logboek").select("id", { count: "exact", head: true }).eq("bedrijf_id", A.id);
+    check("student kan het logboek niet wissen", (nogLog ?? 0) === log.length, `${nogLog} van ${log.length}`);
+    const { data: logB } = await cB.from("logboek").select("id").eq("bedrijf_id", A.id);
+    check("B ziet het logboek van A niet", logB.length === 0);
+    const { data: act } = await cA.rpc("activiteit_per_persoon", { p_bedrijf: A.id });
+    const mij = (act ?? []).find((x) => x.gebruiker_id === A.gebruikerId);
+    check("activiteit per persoon telt de acties van A", mij && Number(mij.aantal) >= 10, JSON.stringify(mij));
+
     // ---------- Opslag ----------
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
     const { error: eUp } = await cA.storage.from("productfotos").upload(`${A.id}/${prod.id}.jpg`, jpeg, { contentType: "image/jpeg", upsert: true });

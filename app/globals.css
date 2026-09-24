@@ -831,3 +831,78 @@ table.tabel {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Hulp ---------- */
+
+.keten {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0 4px;
+}
+.keten__stap {
+  background: var(--verde-vlak);
+  color: var(--verde);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 600;
+  font-size: 14px;
+}
+.keten__pijl {
+  color: var(--tekst-uit);
+}
+.hulp h2 {
+  margin-bottom: 8px;
+}
+.hulp ol,
+.hulp ul {
+  margin: 8px 0 0;
+  padding-left: 22px;
+}
+.hulp li {
+  margin-bottom: 6px;
+}
+
+/* ---------- Afdrukken ---------- */
+/* Balans, resultatenrekening, dagboeken en lijsten netjes op papier (of
+   als pdf via "Afdrukken"): zonder menu, knoppen en formulieren. */
+@media print {
+  body {
+    background: #fff;
+    font-size: 11pt;
+  }
+  .app {
+    display: block;
+  }
+  .zijbalk,
+  .bovenbalk,
+  .schermkop__acties,
+  .zoekbalk,
+  .knop,
+  form,
+  .pdfkader {
+    display: none !important;
+  }
+  .inhoud {
+    padding: 0;
+  }
+  .kaart,
+  .tegel,
+  .tabelkader {
+    box-shadow: none;
+    border-color: #bbb;
+    break-inside: avoid;
+  }
+  .rapporten,
+  .balans,
+  .tweekolom {
+    display: block;
+  }
+  .rapporten .kaart + .kaart {
+    margin-top: 16px;
+  }
+  a {
+    color: inherit;
+  }
+}

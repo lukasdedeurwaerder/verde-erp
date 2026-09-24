@@ -8,7 +8,7 @@
 // daarna in de databank wat er gebeurd is. Werkt in een tijdelijk
 // testbedrijf dat na afloop volledig verdwijnt.
 
-const { sql, check, maakTestomgeving, ruimOp, sessieCookie, einde } = require("./testhulp");
+const { admin, sql, check, maakTestomgeving, maakTestdocent, ruimOp, sessieCookie, einde } = require("./testhulp");
 
 const SITE = process.argv[2] || "http://localhost:3100";
 
@@ -223,6 +223,52 @@ async function actie(cookie, pagina, naam, args, formulier) {
       const p = await fetch(SITE + pad, { headers: { cookie } });
       const t = await p.text();
       check(`scherm ${pad.replace(/[0-9a-f-]{36}/, "…")} toont "${tekst}"`, p.status === 200 && t.includes(tekst), String(p.status));
+    }
+
+    // ---------- Aankoopcreditnota met terugbetaling (fase 5) ----------
+    r = await actie(cookie, `/aankopen/${afId}`, "aankoopcreditnotaMaken", [afId]);
+    const acnId = r.doorsturen && r.doorsturen.split("/").pop();
+    check("creditnota van leverancier gemaakt", !!acnId && r.doorsturen.startsWith("/aankopen/"), r.fout ?? r.doorsturen);
+    r = await actie(cookie, `/aankopen/${acnId}`, "aankoopfactuurOpslaan", [acnId, {}], {
+      relatie_id: lev.id,
+      extern_nummer: "CN-9",
+      datum: "2026-09-28",
+      vervaldatum: "",
+      opmerking: "",
+      lijnen: JSON.stringify([{ rekening_id: rek["610"], omschrijving: "Korting huur", aantal: 1, eenheidsprijs: 20, btw_tarief: 21, korting_pct: 0 }]),
+    });
+    check("creditnota leverancier bewaard", !r.fout, r.fout);
+    r = await actie(cookie, `/aankopen/${acnId}`, "aankoopfactuurDefinitief", [acnId]);
+    check("creditnota leverancier definitief: 24,20 terug te krijgen", !r.fout && (await open(afId)) === -24.2, r.fout ?? String(await open(afId)));
+    r = await actie(cookie, "/bank", "betalingBoeken", [{}], { datum: "2026-09-29", uittreksel: "5", koppeling: "aankoop", aankoop_id: afId, richting: "in", bedrag: "24,20", omschrijving: "" });
+    check("terugbetaling leverancier geboekt", !r.fout && (await open(afId)) === 0, r.fout ?? String(await open(afId)));
+
+    // ---------- Logboek en rechten (fase 5) ----------
+    const [lg] = await sql`select count(*)::int as n from logboek where bedrijf_id = ${T.id} and gebruiker_id = ${T.gebruikerId}`;
+    check("logboek bevat de acties van de student", lg.n >= 15, String(lg.n));
+    for (const pad of ["/docent", "/logboek", "/rekeningen", "/instellingen"]) {
+      const p = await fetch(SITE + pad, { headers: { cookie }, redirect: "manual" });
+      const naar = p.headers.get("location") ?? "";
+      const tekst = p.status === 200 ? await p.text() : "";
+      check(`student kan niet in ${pad}`, (p.status >= 300 && p.status < 400 && !naar.includes(pad)) || tekst.includes("NEXT_REDIRECT"), `${p.status} ${naar}`);
+    }
+    const hulp = await fetch(SITE + "/hulp", { headers: { cookie } });
+    check("hulppagina laadt", hulp.status === 200 && (await hulp.text()).includes("Hoe werkt het?"));
+
+    const docent = await maakTestdocent();
+    try {
+      const dc = sessieCookie(docent.sessie);
+      for (const [pad, tekst] of [
+        ["/docent", "Activiteit per student"],
+        ["/logboek", "Wie deed wat"],
+        ["/rekeningen", "Standaardrekeningen"],
+        ["/instellingen", "Meerdere studenten tegelijk"],
+      ]) {
+        const p = await fetch(SITE + pad, { headers: { cookie: dc } });
+        check(`docent opent ${pad}`, p.status === 200 && (await p.text()).includes(tekst), String(p.status));
+      }
+    } finally {
+      await admin.auth.admin.deleteUser(docent.gebruikerId);
     }
 
     // ---------- Schermen ----------

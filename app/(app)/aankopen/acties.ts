@@ -6,6 +6,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { huidigeContext, vereistBedrijf } from "@/lib/sessie";
 import { tekst } from "@/lib/formulier";
 import { leesLijnen } from "@/lib/lijnen";
+import { vandaag } from "@/lib/bestelling";
 
 export type AankoopStatus = { fout?: string; goed?: string };
 
@@ -46,7 +47,7 @@ export async function aankoopfactuurOpslaan(id: string | null, _v: AankoopStatus
     const ctx = await huidigeContext();
     gebruikerId = ctx.gebruikerId;
     const { data } = await supabase.from("documenten").select("bedrijf_id, status, soort").eq("id", id).maybeSingle();
-    if (!data || data.soort !== "aankoopfactuur") return { fout: "Aankoopfactuur niet gevonden." };
+    if (!data || (data.soort !== "aankoopfactuur" && data.soort !== "aankoopcreditnota")) return { fout: "Aankoopfactuur niet gevonden." };
     if (data.status !== "concept") return { fout: "Een definitieve aankoopfactuur kan niet meer gewijzigd worden." };
     bedrijfId = data.bedrijf_id;
   } else {
@@ -146,4 +147,53 @@ export async function aankoopfactuurVerwijderen(id: string): Promise<AankoopStat
   if (d.pdf_pad) await supabase.storage.from("documenten").remove([d.pdf_pad]);
   ververs();
   redirect(d.bestelling_id ? `/bestellingen/${d.bestelling_id}` : "/aankopen");
+}
+
+/**
+ * Een creditnota van de leverancier registreren bij een definitieve
+ * aankoopfactuur. Ze begint met de lijnen van de factuur; de student
+ * houdt over wat de leverancier crediteert.
+ */
+export async function aankoopcreditnotaMaken(factuurId: string): Promise<AankoopStatus> {
+  const ctx = await huidigeContext();
+  const supabase = await supabaseServer();
+  const { data: f } = await supabase.from("documenten").select("*, documentlijnen(*)").eq("id", factuurId).maybeSingle();
+  if (!f || f.soort !== "aankoopfactuur" || f.status !== "definitief") {
+    return { fout: "Een creditnota van een leverancier hoort bij een definitieve aankoopfactuur." };
+  }
+  const datumIso = vandaag();
+  const { data: cn, error } = await supabase
+    .from("documenten")
+    .insert({
+      bedrijf_id: f.bedrijf_id,
+      soort: "aankoopcreditnota",
+      relatie_id: f.relatie_id,
+      bron_document_id: f.id,
+      bestelling_id: f.bestelling_id,
+      datum: datumIso,
+      jaar: Number(datumIso.slice(0, 4)),
+      aangemaakt_door: ctx.gebruikerId,
+    })
+    .select("id")
+    .single();
+  if (error) return { fout: error.message };
+
+  type L = { product_id: string | null; rekening_id: string | null; omschrijving: string; aantal: number; eenheidsprijs: number; btw_tarief: number; korting_pct: number; volgorde: number };
+  const lijnen = ((f.documentlijnen ?? []) as L[]).map((l) => ({
+    document_id: cn.id,
+    product_id: l.product_id,
+    rekening_id: l.rekening_id,
+    omschrijving: l.omschrijving,
+    aantal: l.aantal,
+    eenheidsprijs: l.eenheidsprijs,
+    btw_tarief: l.btw_tarief,
+    korting_pct: l.korting_pct,
+    volgorde: l.volgorde,
+  }));
+  if (lijnen.length) {
+    const { error: e2 } = await supabase.from("documentlijnen").insert(lijnen);
+    if (e2) return { fout: e2.message };
+  }
+  ververs(cn.id);
+  redirect(`/aankopen/${cn.id}`);
 }

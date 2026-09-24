@@ -36,9 +36,16 @@ export function BankFormulier({
   const beginFactuur = facturen.find((f) => f.id === document);
   const beginAankoop = aankopen.find((f) => f.id === document);
   const [koppeling, setKoppeling] = useState<Koppeling>(beginAankoop ? "aankoop" : beginFactuur ? "factuur" : "factuur");
-  const [richting, setRichting] = useState<"in" | "uit">(beginAankoop ? "uit" : "in");
+  // Een positief openstaand bedrag: de klant betaalt (in) of wij betalen (uit).
+  // Negatief: er is te veel betaald en het geld gaat de andere kant op.
+  const richtingVoor = (soort: "factuur" | "aankoop", open: number): "in" | "uit" =>
+    (soort === "factuur") === (open > 0) ? "in" : "uit";
+  const bedragTekst = (open: number) => String(Math.abs(open)).replace(".", ",");
+  const [richting, setRichting] = useState<"in" | "uit">(
+    beginAankoop ? richtingVoor("aankoop", beginAankoop.openstaand) : beginFactuur ? richtingVoor("factuur", beginFactuur.openstaand) : "in",
+  );
   const [bedrag, setBedrag] = useState<string>(
-    beginFactuur ? String(beginFactuur.openstaand).replace(".", ",") : beginAankoop ? String(beginAankoop.openstaand).replace(".", ",") : "",
+    beginFactuur ? bedragTekst(beginFactuur.openstaand) : beginAankoop ? bedragTekst(beginAankoop.openstaand) : "",
   );
   const [factuurId, setFactuurId] = useState(beginFactuur?.id ?? "");
   const [aankoopId, setAankoopId] = useState(beginAankoop?.id ?? "");
@@ -94,13 +101,16 @@ export function BankFormulier({
             onChange={(e) => {
               setFactuurId(e.target.value);
               const f = facturen.find((x) => x.id === e.target.value);
-              if (f) setBedrag(String(f.openstaand).replace(".", ","));
+              if (f) {
+                setBedrag(bedragTekst(f.openstaand));
+                setRichting(richtingVoor("factuur", f.openstaand));
+              }
             }}
           >
             <option value="">— kies een openstaande factuur —</option>
             {facturen.map((f) => (
               <option key={f.id} value={f.id}>
-                {f.nummer} · {f.relatie} · nog {euro(f.openstaand)}
+                {f.nummer} · {f.relatie} · {f.openstaand > 0 ? `nog ${euro(f.openstaand)}` : `${euro(-f.openstaand)} terug te betalen`}
               </option>
             ))}
           </select>
@@ -119,14 +129,17 @@ export function BankFormulier({
             onChange={(e) => {
               setAankoopId(e.target.value);
               const f = aankopen.find((x) => x.id === e.target.value);
-              if (f) setBedrag(String(f.openstaand).replace(".", ","));
+              if (f) {
+                setBedrag(bedragTekst(f.openstaand));
+                setRichting(richtingVoor("aankoop", f.openstaand));
+              }
             }}
           >
             <option value="">— kies een openstaande aankoopfactuur —</option>
             {aankopen.map((f) => (
               <option key={f.id} value={f.id}>
                 {f.nummer}
-                {f.extern ? ` (${f.extern})` : ""} · {f.relatie} · nog {euro(f.openstaand)}
+                {f.extern ? ` (${f.extern})` : ""} · {f.relatie} · {f.openstaand > 0 ? `nog ${euro(f.openstaand)}` : `${euro(-f.openstaand)} terug te krijgen`}
               </option>
             ))}
           </select>
