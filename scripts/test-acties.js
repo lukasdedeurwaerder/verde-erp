@@ -147,6 +147,84 @@ async function actie(cookie, pagina, naam, args, formulier) {
     r = await actie(cookie, `/documenten/${lbId}`, "documentAnnuleren", [lbId]);
     check("leverbon annuleren zet voorraad terug (10)", !r.fout && (await voorraad(prod.id)) === 10, r.fout ?? String(await voorraad(prod.id)));
 
+    // ---------- Boekhouding (fase 4) ----------
+    const open = async (id) => Number((await sql`select openstaand(${id}) as o`)[0].o);
+    const [vk] = await sql`select count(*)::int as n from boekingen where document_id in (${fId}, ${cnId}) and dagboek = 'verkoop'`;
+    check("factuur en creditnota staan in het dagboek verkopen", vk.n === 2, String(vk.n));
+    check("openstaand = 108,90 - 15,13 = 93,77", (await open(fId)) === 93.77, String(await open(fId)));
+
+    const { data: reks } = await c.from("rekeningen").select("id, nummer");
+    const rek = Object.fromEntries(reks.map((x) => [x.nummer, x.id]));
+
+    r = await actie(cookie, "/bank", "betalingBoeken", [{}], { datum: "2026-09-26", uittreksel: "3", koppeling: "factuur", factuur_id: fId, richting: "in", bedrag: "100", omschrijving: "" });
+    check("te veel ontvangen geweigerd", !!r.fout, r.fout);
+    r = await actie(cookie, "/bank", "betalingBoeken", [{}], { datum: "2026-09-26", uittreksel: "3", koppeling: "factuur", factuur_id: fId, richting: "in", bedrag: "93,77", omschrijving: "" });
+    check("klant betaalt 93,77 via de bank", !r.fout && (await open(fId)) === 0, r.fout ?? String(await open(fId)));
+    r = await actie(cookie, "/bank", "betalingBoeken", [{}], { datum: "2026-09-01", uittreksel: "1", koppeling: "rekening", rekening_id: rek["100"], richting: "in", bedrag: "1000", omschrijving: "Startkapitaal" });
+    check("startkapitaal via de bank", !r.fout, r.fout);
+
+    const { data: lev } = await c.from("relaties").insert({ bedrijf_id: T.id, soort: "leverancier", naam: "Actietest leverancier" }).select().single();
+    const afLijnen = JSON.stringify([
+      { product_id: prod.id, omschrijving: "Inkoop product", aantal: 5, eenheidsprijs: 5, btw_tarief: 21, korting_pct: 0 },
+      { rekening_id: rek["610"], omschrijving: "Huur marktkraam", aantal: 1, eenheidsprijs: 100, btw_tarief: 21, korting_pct: 0 },
+    ]);
+    r = await actie(cookie, "/aankopen/nieuw", "aankoopfactuurOpslaan", [null, {}], { relatie_id: lev.id, extern_nummer: "", datum: "2026-09-26", vervaldatum: "", opmerking: "", lijnen: afLijnen });
+    const afId = r.doorsturen && r.doorsturen.split("/").pop();
+    check("aankoopfactuur geregistreerd", !!afId && r.doorsturen.startsWith("/aankopen/"), r.fout ?? r.doorsturen);
+    r = await actie(cookie, `/aankopen/${afId}`, "aankoopfactuurDefinitief", [afId]);
+    check("zonder nummer leverancier geweigerd", !!r.fout, r.fout);
+    r = await actie(cookie, `/aankopen/${afId}`, "aankoopfactuurOpslaan", [afId, {}], { relatie_id: lev.id, extern_nummer: "INV-778", datum: "2026-09-26", vervaldatum: "2026-10-26", opmerking: "", lijnen: afLijnen });
+    check("nummer leverancier aangevuld", !r.fout, r.fout);
+    r = await actie(cookie, `/aankopen/${afId}`, "aankoopfactuurDefinitief", [afId]);
+    const ak = await sql`select r.nummer, l.debet - l.credit as bedrag from boekingslijnen l join boekingen b on b.id = l.boeking_id join rekeningen r on r.id = l.rekening_id where b.document_id = ${afId} and b.dagboek = 'aankoop'`;
+    const akm = Object.fromEntries(ak.map((x) => [x.nummer, Number(x.bedrag)]));
+    check("aankoop geboekt: 604 D 25 / 610 D 100 / 411 D 26,25 / 440 C 151,25", !r.fout && akm["604"] === 25 && akm["610"] === 100 && akm["411"] === 26.25 && akm["440"] === -151.25, r.fout ?? JSON.stringify(akm));
+    r = await actie(cookie, "/bank", "betalingBoeken", [{}], { datum: "2026-09-27", uittreksel: "4", koppeling: "aankoop", aankoop_id: afId, richting: "uit", bedrag: "151,25", omschrijving: "" });
+    check("leverancier betaald via de bank", !r.fout && (await open(afId)) === 0, r.fout ?? String(await open(afId)));
+
+    r = await actie(cookie, "/dagboeken?dagboek=divers", "diversBoeken", [{}], {
+      datum: "2026-09-30",
+      omschrijving: "Afschrijving kassa",
+      lijnen: JSON.stringify([{ rekening_id: rek["630"], debet: "20" }, { rekening_id: rek["2409"], credit: "20" }]),
+    });
+    check("diverse boeking (afschrijving) geboekt", !r.fout, r.fout);
+    r = await actie(cookie, "/dagboeken?dagboek=divers", "diversBoeken", [{}], {
+      datum: "2026-09-30",
+      omschrijving: "Scheef",
+      lijnen: JSON.stringify([{ rekening_id: rek["630"], debet: "20" }, { rekening_id: rek["2409"], credit: "19" }]),
+    });
+    check("diverse boeking uit evenwicht geweigerd", !!r.fout, r.fout);
+
+    r = await actie(cookie, "/rapporten", "voorraadOpBalans", [{}], { datum: "2026-09-30" });
+    const [s340] = await sql`select coalesce(sum(l.debet - l.credit), 0) as s from boekingslijnen l join boekingen b on b.id = l.boeking_id where b.bedrijf_id = ${T.id} and l.rekening_id = ${rek["340"]}`;
+    check("voorraad op balans: 10 stuks x 5 = 50", !r.fout && Number(s340.s) === 50, r.fout ?? String(s340.s));
+
+    const saldi = await sql`select soort, saldo from saldi_tot(${T.id}, null)`;
+    const som = (s) => saldi.filter((x) => x.soort === s).reduce((t, x) => t + Number(x.saldo), 0);
+    const verschil = som("actief") - som("passief") - (som("opbrengst") - som("kost"));
+    check("balans sluit", Math.abs(verschil) < 0.005, verschil.toFixed(2));
+
+    const [kap] = await sql`select id from boekingen where bedrijf_id = ${T.id} and omschrijving = 'Startkapitaal'`;
+    r = await actie(cookie, "/dagboeken?dagboek=financieel", "boekingVerwijderen", [kap.id]);
+    const [nog] = await sql`select count(*)::int as n from boekingen where id = ${kap.id}`;
+    check("bankverrichting verwijderd", !r.fout && nog.n === 0, r.fout);
+
+    for (const [pad, tekst] of [
+      ["/bank", "Verrichting boeken"],
+      ["/dagboeken?dagboek=verkoop", "F-"],
+      ["/dagboeken?dagboek=aankoop", "INV-778"],
+      ["/rapporten", "activa = passiva"],
+      ["/grootboek/400", "Handelsdebiteuren"],
+      ["/aankopen", "INV-778"],
+      [`/aankopen/${afId}`, "Volledig betaald"],
+      [`/documenten/${fId}`, "volledig betaald"],
+      ["/", "Nog te ontvangen"],
+    ]) {
+      const p = await fetch(SITE + pad, { headers: { cookie } });
+      const t = await p.text();
+      check(`scherm ${pad.replace(/[0-9a-f-]{36}/, "…")} toont "${tekst}"`, p.status === 200 && t.includes(tekst), String(p.status));
+    }
+
     // ---------- Schermen ----------
     for (const pad of ["/voorraad", `/voorraad/${prod.id}`, "/documenten?soort=creditnota", `/bestellingen/${best.id}`]) {
       const p = await fetch(SITE + pad, { headers: { cookie } });

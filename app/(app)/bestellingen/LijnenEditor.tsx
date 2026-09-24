@@ -21,8 +21,11 @@ export type ProductKeuze = {
   btw_tarief: number;
 };
 
+export type RekeningKeuze = { id: string; nummer: string; naam: string };
+
 type Rij = {
   sleutel: number;
+  rekening_id: string;
   product_id: string;
   omschrijving: string;
   aantal: string;
@@ -38,6 +41,7 @@ function getal(t: string): number {
 
 function naarLijn(r: Rij, volgorde: number): Lijn {
   return {
+    ...(r.rekening_id ? { rekening_id: r.rekening_id } : {}),
     product_id: r.product_id || null,
     omschrijving: r.omschrijving,
     aantal: getal(r.aantal),
@@ -50,7 +54,7 @@ function naarLijn(r: Rij, volgorde: number): Lijn {
 
 let teller = 1;
 function legeRij(): Rij {
-  return { sleutel: teller++, product_id: "", omschrijving: "", aantal: "1", eenheidsprijs: "", btw_tarief: 21, korting_pct: "" };
+  return { sleutel: teller++, rekening_id: "", product_id: "", omschrijving: "", aantal: "1", eenheidsprijs: "", btw_tarief: 21, korting_pct: "" };
 }
 
 export function LijnenEditor({
@@ -58,17 +62,21 @@ export function LijnenEditor({
   producten,
   begin,
   vergrendeld = false,
+  rekeningen,
 }: {
   soort: BestellingSoort;
   producten: ProductKeuze[];
   begin: Lijn[];
   vergrendeld?: boolean;
+  /** Alleen bij een aankoopfactuur: dan kies je per lijn de rekening. */
+  rekeningen?: RekeningKeuze[];
 }) {
   const [rijen, setRijen] = useState<Rij[]>(() =>
     begin.length === 0
       ? [legeRij()]
       : begin.map((l) => ({
           sleutel: teller++,
+          rekening_id: l.rekening_id ?? "",
           product_id: l.product_id ?? "",
           omschrijving: l.omschrijving,
           aantal: String(l.aantal).replace(".", ","),
@@ -113,6 +121,7 @@ export function LijnenEditor({
           <thead>
             <tr>
               <th style={{ width: "22%" }}>Product</th>
+              {rekeningen && <th style={{ width: "18%" }}>Rekening</th>}
               <th>Omschrijving</th>
               <th className="getal" style={{ width: 90 }}>Aantal</th>
               <th className="getal" style={{ width: 120 }}>Prijs excl.</th>
@@ -135,6 +144,18 @@ export function LijnenEditor({
                     ))}
                   </select>
                 </td>
+                {rekeningen && (
+                  <td>
+                    <select className="veld" value={r.rekening_id} onChange={(e) => wijzig(r.sleutel, { rekening_id: e.target.value })} disabled={vergrendeld} title="Op welke rekening deze lijn geboekt wordt">
+                      <option value="">{r.product_id ? "— van het product (604) —" : "— 604 Aankopen —"}</option>
+                      {rekeningen.map((k) => (
+                        <option key={k.id} value={k.id}>
+                          {k.nummer} {k.naam}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                )}
                 <td>
                   <input className="veld" value={r.omschrijving} onChange={(e) => wijzig(r.sleutel, { omschrijving: e.target.value })} placeholder="Omschrijving" disabled={vergrendeld} />
                 </td>

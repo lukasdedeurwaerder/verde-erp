@@ -129,6 +129,8 @@ export type Lijn = {
   btw_tarief: number;
   korting_pct: number;
   volgorde: number;
+  /** Alleen bij aankoopfacturen: op welke rekening deze lijn geboekt wordt. */
+  rekening_id?: string | null;
 };
 
 export const DOCUMENT_SOORTEN = [
@@ -161,6 +163,8 @@ export type Document = {
   totaal_btw: number;
   totaal_incl: number;
   betaald: number;
+  /** Aankoopfactuur: het nummer dat de leverancier gaf. */
+  extern_nummer: string | null;
   /** Creditnota: goederen gaan terug in voorraad (retour). */
   voorraad_terug: boolean;
   opmerking: string | null;
@@ -169,4 +173,52 @@ export type Document = {
   bijgewerkt_op: string;
   definitief_op: string | null;
   aangemaakt_door: string | null;
+};
+
+// ---------- Fase 4: boekhouding ----------
+
+export type RekeningSoort = "actief" | "passief" | "kost" | "opbrengst";
+
+export type Rekening = {
+  id: string;
+  nummer: string;
+  naam: string;
+  soort: RekeningSoort;
+  actief: boolean;
+};
+
+export type Dagboek = "verkoop" | "aankoop" | "financieel" | "divers";
+
+export type Boekingslijn = {
+  id: string;
+  rekening_id: string;
+  omschrijving: string | null;
+  debet: number;
+  credit: number;
+  volgorde: number;
+  rekeningen?: { nummer: string; naam: string } | null;
+};
+
+export type Boeking = {
+  id: string;
+  bedrijf_id: string;
+  dagboek: Dagboek;
+  jaar: number;
+  nummer: number;
+  datum: string;
+  omschrijving: string;
+  relatie_id: string | null;
+  document_id: string | null;
+  uittreksel_nummer: string | null;
+  aangemaakt_op: string;
+};
+
+export type Saldo = {
+  rekening_id: string;
+  nummer: string;
+  naam: string;
+  soort: RekeningSoort;
+  debet: number;
+  credit: number;
+  saldo: number;
 };

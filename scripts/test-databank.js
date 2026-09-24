@@ -3,9 +3,9 @@
 //   npm.cmd run test:databank
 //
 // Werkt in twee tijdelijke testbedrijven (zie testhulp.js), controleert
-// de afscherming tussen bedrijven, de triggers en de functies van fase 3
-// (voorraad bij leverbon en ontvangstbon, factuur, creditnota), en ruimt
-// daarna alles op. Veilig om te draaien terwijl er gewerkt wordt.
+// de afscherming tussen bedrijven, de triggers, de voorraad (fase 3) en
+// de boekhouding (fase 4: automatische boekingen, betalingen, balans), en
+// ruimt daarna alles op. Veilig om te draaien terwijl er gewerkt wordt.
 
 const { admin, check, maakTestomgeving, ruimOp, einde } = require("./testhulp");
 
@@ -111,20 +111,85 @@ const { admin, check, maakTestomgeving, ruimOp, einde } = require("./testhulp");
     const { error: eBdef } = await cB.rpc("document_definitief", { p_id: cn2.id });
     check("B kan document van A niet definitief maken", !!eBdef, eBdef && eBdef.message);
 
-    // ---------- Boekhouding: evenwicht en saldi ----------
-    const { data: rek } = await admin.from("rekeningen").select("id,nummer").in("nummer", ["400", "700", "451"]);
+    // ---------- Boekhouding (fase 4) ----------
+    const { data: rek } = await admin.from("rekeningen").select("id,nummer");
     const r = Object.fromEntries(rek.map((x) => [x.nummer, x.id]));
-    const { data: boek } = await cA.from("boekingen").insert({ bedrijf_id: A.id, dagboek: "verkoop", omschrijving: "Test", document_id: f.id }).select().single();
-    const { error: eL1 } = await cA.from("boekingslijnen").insert([
-      { boeking_id: boek.id, rekening_id: r["400"], debet: 36.3 },
-      { boeking_id: boek.id, rekening_id: r["700"], credit: 30 },
-      { boeking_id: boek.id, rekening_id: r["451"], credit: 6.3 },
+    const lijnenVan = async (docId, dagboek) => {
+      const { data } = await cA.from("boekingen").select("id, boekingslijnen(debet, credit, rekeningen(nummer))").eq("document_id", docId).eq("dagboek", dagboek);
+      if (!data || data.length !== 1) return null;
+      const uit = {};
+      for (const l of data[0].boekingslijnen) uit[l.rekeningen.nummer] = Number(l.debet) - Number(l.credit);
+      return uit;
+    };
+
+    const bf = await lijnenVan(f.id, "verkoop");
+    check("factuur geboekt: 400 D 36,30 / 700 C 30 / 451 C 6,30", bf && bf["400"] === 36.3 && bf["700"] === -30 && bf["451"] === -6.3, JSON.stringify(bf));
+    const bc = await lijnenVan(cn1.id, "verkoop");
+    check("creditnota omgekeerd geboekt: 400 C 12,10", bc && bc["400"] === -12.1 && bc["700"] === 10 && bc["451"] === 2.1, JSON.stringify(bc));
+
+    const open = async (id) => Number((await cA.rpc("openstaand", { p_id: id })).data);
+    check("openstaand factuur = 36,30 - 12,10 = 24,20", (await open(f.id)) === 24.2, String(await open(f.id)));
+
+    const { error: eTeVeelBet } = await cA.rpc("betaling_boeken", { p_bedrijf: A.id, p_datum: "2026-09-25", p_uittreksel: "1", p_omschrijving: "", p_bedrag: 30, p_document: f.id, p_rekening: null });
+    check("meer ontvangen dan openstaat geweigerd", !!eTeVeelBet, eTeVeelBet && eTeVeelBet.message);
+    const { data: betId, error: eBet } = await cA.rpc("betaling_boeken", { p_bedrijf: A.id, p_datum: "2026-09-25", p_uittreksel: "1", p_omschrijving: "", p_bedrag: 24.2, p_document: f.id, p_rekening: null });
+    check("betaling van de klant geboekt", !eBet, eBet && eBet.message);
+    check("factuur volledig betaald", (await open(f.id)) === 0, String(await open(f.id)));
+
+    const { error: eBvoorA } = await cB.rpc("betaling_boeken", { p_bedrijf: A.id, p_datum: "2026-09-25", p_uittreksel: "1", p_omschrijving: "Sluip", p_bedrag: 5, p_document: null, p_rekening: r["100"] });
+    check("B kan niet boeken voor A", !!eBvoorA, eBvoorA && eBvoorA.message);
+
+    const { error: eKap } = await cA.rpc("betaling_boeken", { p_bedrijf: A.id, p_datum: "2026-09-01", p_uittreksel: "0", p_omschrijving: "Inbreng kapitaal", p_bedrag: 500, p_document: null, p_rekening: r["100"] });
+    check("kapitaalinbreng via bank geboekt", !eKap, eKap && eKap.message);
+
+    // Aankoopfactuur zonder nummer van de leverancier: geweigerd.
+    const { data: af } = await cA.from("documenten").insert({ bedrijf_id: A.id, soort: "aankoopfactuur", relatie_id: lev.id }).select().single();
+    check("aankoopfactuur krijgt nummer AF-jaar-0001", /^AF-\d{4}-0001$/.test(af.nummer), af.nummer);
+    await cA.from("documentlijnen").insert([
+      { document_id: af.id, product_id: prod.id, omschrijving: "Inkoop", aantal: 10, eenheidsprijs: 4, btw_tarief: 21 },
+      { document_id: af.id, rekening_id: r["610"], omschrijving: "Huur standje", aantal: 1, eenheidsprijs: 50, btw_tarief: 21 },
     ]);
-    check("boeking in evenwicht aanvaard", !eL1, eL1 && eL1.message);
-    const { error: eL2 } = await cA.from("boekingslijnen").insert([{ boeking_id: boek.id, rekening_id: r["400"], debet: 1 }]);
-    check("boeking uit evenwicht geweigerd", !!eL2 && eL2.message.includes("evenwicht"));
-    const { data: saldiB } = await cB.from("rekeningsaldi").select("nummer").eq("bedrijf_id", A.id);
+    const { error: eZonderNr } = await cA.rpc("document_definitief", { p_id: af.id });
+    check("aankoopfactuur zonder leveranciersnummer geweigerd", !!eZonderNr && eZonderNr.message.includes("leverancier"), eZonderNr && eZonderNr.message);
+    await cA.from("documenten").update({ extern_nummer: "2026/1234" }).eq("id", af.id);
+    const { error: eAf } = await cA.rpc("document_definitief", { p_id: af.id });
+    check("aankoopfactuur definitief", !eAf, eAf && eAf.message);
+    const ba = await lijnenVan(af.id, "aankoop");
+    check("aankoop geboekt: 604 D 40 / 610 D 50 / 411 D 18,90 / 440 C 108,90", ba && ba["604"] === 40 && ba["610"] === 50 && ba["411"] === 18.9 && ba["440"] === -108.9, JSON.stringify(ba));
+    const { error: eAfPos } = await cA.rpc("betaling_boeken", { p_bedrijf: A.id, p_datum: "2026-09-26", p_uittreksel: "2", p_omschrijving: "", p_bedrag: 50, p_document: af.id, p_rekening: null });
+    check("aankoopfactuur met positief bedrag geweigerd", !!eAfPos, eAfPos && eAfPos.message);
+    const { error: eAfBet } = await cA.rpc("betaling_boeken", { p_bedrijf: A.id, p_datum: "2026-09-26", p_uittreksel: "2", p_omschrijving: "", p_bedrag: -108.9, p_document: af.id, p_rekening: null });
+    check("leverancier betaald", !eAfBet && (await open(af.id)) === 0, eAfBet ? eAfBet.message : String(await open(af.id)));
+
+    // Verkoop- en aankoopboekingen kunnen niet los verwijderd worden, betalingen wel.
+    const { data: vb } = await cA.from("boekingen").select("id").eq("document_id", f.id).eq("dagboek", "verkoop").single();
+    const { error: eVerw } = await cA.rpc("boeking_verwijderen", { p_id: vb.id });
+    check("verkoopboeking los verwijderen geweigerd", !!eVerw, eVerw && eVerw.message);
+    const { error: eBetVerw } = await cA.rpc("boeking_verwijderen", { p_id: betId });
+    check("betaling verwijderen zet factuur weer open (24,20)", !eBetVerw && (await open(f.id)) === 24.2, eBetVerw ? eBetVerw.message : String(await open(f.id)));
+
+    // Divers: uit evenwicht geweigerd, in evenwicht aanvaard.
+    const { error: eDivScheef } = await cA.rpc("divers_boeken", { p_bedrijf: A.id, p_datum: "2026-09-30", p_omschrijving: "Scheef", p_lijnen: [{ rekening_id: r["630"], debet: 10 }, { rekening_id: r["2409"], credit: 9 }] });
+    check("diverse boeking uit evenwicht geweigerd", !!eDivScheef && eDivScheef.message.includes("evenwicht"), eDivScheef && eDivScheef.message);
+    const { error: eDiv } = await cA.rpc("divers_boeken", { p_bedrijf: A.id, p_datum: "2026-09-30", p_omschrijving: "Afschrijving", p_lijnen: [{ rekening_id: r["630"], debet: 10 }, { rekening_id: r["2409"], credit: 10 }] });
+    check("diverse boeking in evenwicht aanvaard", !eDiv, eDiv && eDiv.message);
+
+    // Voorraad op de balans: 16 stuks x 4 = 64 op 340.
+    const { data: verschil, error: eVb } = await cA.rpc("voorraad_op_balans", { p_bedrijf: A.id, p_datum: "2026-09-30" });
+    check("voorraad op balans: 16 x 4 = 64", !eVb && Number(verschil) === 64, eVb ? eVb.message : String(verschil));
+
+    // Balans sluit: activa = passiva + resultaat.
+    const { data: saldi } = await cA.rpc("saldi_tot", { p_bedrijf: A.id, p_tot: null });
+    const som = (soort) => saldi.filter((x) => x.soort === soort).reduce((t, x) => t + Number(x.saldo), 0);
+    const activa = som("actief"), passiva = som("passief"), resultaat = som("opbrengst") - som("kost");
+    check("balans sluit: activa = passiva + resultaat", Math.abs(activa - passiva - resultaat) < 0.005, `${activa.toFixed(2)} = ${passiva.toFixed(2)} + ${resultaat.toFixed(2)}`);
+    const s340 = saldi.find((x) => x.nummer === "340");
+    check("rekening 340 staat op 64", s340 && Number(s340.saldo) === 64, JSON.stringify(s340));
+
+    const { data: saldiB } = await cB.rpc("saldi_tot", { p_bedrijf: A.id, p_tot: null });
     check("B ziet saldi van A niet", saldiB.length === 0);
+    const { error: eGedeeld } = await cB.rpc("gedeelde_bankrekening", {});
+    check("gedeelde bankrekening leesbaar", !eGedeeld, eGedeeld && eGedeeld.message);
 
     // ---------- Opslag ----------
     const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);

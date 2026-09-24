@@ -90,13 +90,16 @@ async function ruimOp(bedrijven) {
 
 /**
  * Vangnet: testbedrijven die een eerder, afgebroken script liet staan.
- * Herkenbaar aan hun naam en aan inactief; nooit een echt bedrijf.
+ * Herkenbaar: inactief, en een testnaam of een testaccount
+ * (@verde-test.invalid). Nooit een echt bedrijf.
  */
 async function ruimRestenOp() {
   const resten = await sql`
     select b.id, p.id as gebruiker_id
     from bedrijven b left join profielen p on p.bedrijf_id = b.id
-    where b.naam like 'TEST % (wordt verwijderd)' and not b.actief`;
+    where not b.actief
+      and (b.naam like 'TEST % (wordt verwijderd)'
+           or exists (select 1 from profielen t where t.bedrijf_id = b.id and t.email like '%@verde-test.invalid'))`;
   if (resten.length === 0) return;
   const perBedrijf = new Map();
   for (const r of resten) {

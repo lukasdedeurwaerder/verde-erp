@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { huidigeContext } from "@/lib/sessie";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
@@ -17,6 +17,7 @@ import type { Document, Lijn } from "@/lib/types";
 import type { ProductKeuze } from "../../bestellingen/LijnenEditor";
 import { DocumentActies } from "./Acties";
 import { CreditnotaFormulier } from "./CreditnotaFormulier";
+import { BOEKING_SELECT, BoekingWeergave, type BoekingMetLijnen } from "../../dagboeken/BoekingWeergave";
 
 type Rij = Document & {
   documentlijnen: Lijn[];
@@ -51,6 +52,7 @@ export default async function DocumentPagina({ params }: { params: Promise<{ id:
     .eq("id", id)
     .maybeSingle();
   if (!data) notFound();
+  if (data.soort === "aankoopfactuur") redirect(`/aankopen/${id}`);
   const d = data as unknown as Rij;
   const lijnen = [...(d.documentlijnen ?? [])].sort((a, b) => a.volgorde - b.volgorde);
   const som = totalen(lijnen);
@@ -119,6 +121,14 @@ export default async function DocumentPagina({ params }: { params: Promise<{ id:
       .order("naam");
     producten = (ps ?? []) as ProductKeuze[];
   }
+
+  // Geboekt in het dagboek verkopen, en betalingen via de bank.
+  let boekingen: BoekingMetLijnen[] = [];
+  if ((d.soort === "factuur" || d.soort === "creditnota") && d.status === "definitief") {
+    const { data: bk } = await supabase.from("boekingen").select(BOEKING_SELECT).eq("document_id", d.id).order("datum").order("aangemaakt_op");
+    boekingen = (bk ?? []) as unknown as BoekingMetLijnen[];
+  }
+  const openstaand = cent(Number(d.totaal_incl) - Number(d.betaald) - gecrediteerd);
 
   const mededeling =
     d.soort === "factuur" && d.volgnummer && d.bedrijven
@@ -351,6 +361,54 @@ export default async function DocumentPagina({ params }: { params: Promise<{ id:
                   </tbody>
                 </table>
               )}
+            </div>
+          )}
+
+          {d.soort === "factuur" && d.status === "definitief" && (
+            <div className="kaart">
+              <div className="kaart__kop">
+                <h2>Betaling</h2>
+                {openstaand > 0 ? (
+                  <Link href={`/bank?document=${d.id}`} className="knop knop--primair knop--klein">
+                    Betaling boeken
+                  </Link>
+                ) : (
+                  <span className="badge badge--goed">{openstaand === 0 ? "volledig betaald" : `${euro(-openstaand)} te veel betaald`}</span>
+                )}
+              </div>
+              <table className="totalen">
+                <tbody>
+                  <tr>
+                    <td>Factuur</td>
+                    <td className="getal">{euro(d.totaal_incl)}</td>
+                  </tr>
+                  {gecrediteerd > 0 && (
+                    <tr>
+                      <td>Gecrediteerd</td>
+                      <td className="getal">− {euro(gecrediteerd)}</td>
+                    </tr>
+                  )}
+                  <tr>
+                    <td>Ontvangen</td>
+                    <td className="getal">− {euro(d.betaald)}</td>
+                  </tr>
+                  <tr className="totalen__incl">
+                    <td>Nog te ontvangen</td>
+                    <td className="getal">{euro(Math.max(openstaand, 0))}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {boekingen.length > 0 && (
+            <div className="kaart">
+              <div className="kaart__kop">
+                <h2>Boekingen</h2>
+              </div>
+              {boekingen.map((b) => (
+                <BoekingWeergave key={b.id} boeking={b} />
+              ))}
             </div>
           )}
 

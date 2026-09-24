@@ -6,7 +6,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { huidigeContext, vereistBedrijf } from "@/lib/sessie";
 import { tekst } from "@/lib/formulier";
 import { leesLijnen } from "@/lib/lijnen";
-import { DOCUMENT_LABEL, DOCUMENTEN_PER_SOORT, EEN_PER_BESTELLING, plusDagen, SOORT_LABEL, vandaag, VERGRENDELT_BESTELLING } from "@/lib/bestelling";
+import { DOCUMENT_LABEL, documentPad, DOCUMENTEN_PER_SOORT, EEN_PER_BESTELLING, plusDagen, SOORT_LABEL, vandaag, VERGRENDELT_BESTELLING } from "@/lib/bestelling";
 import { BESTELLING_STATUSSEN, type BestellingSoort, type BestellingStatus, type DocumentSoort } from "@/lib/types";
 
 export type BestellingStatusResultaat = { fout?: string };
@@ -133,7 +133,18 @@ export async function bestellingOpslaan(
   if (wisFout) return { fout: wisFout.message };
   const { error: lijnFout } = await supabase
     .from("bestellijnen")
-    .insert(gelezen.lijnen.map((l) => ({ ...l, bestelling_id: bestellingId })));
+    .insert(
+      gelezen.lijnen.map((l) => ({
+        bestelling_id: bestellingId,
+        product_id: l.product_id,
+        omschrijving: l.omschrijving,
+        aantal: l.aantal,
+        eenheidsprijs: l.eenheidsprijs,
+        btw_tarief: l.btw_tarief,
+        korting_pct: l.korting_pct,
+        volgorde: l.volgorde,
+      })),
+    );
   if (lijnFout) return { fout: lijnFout.message };
 
   ververs(bestellingId!);
@@ -205,7 +216,7 @@ export async function documentMakenVanBestelling(
   let vervaldatum: string | null = null;
   if (soort === "offerte") vervaldatum = plusDagen(datumIso, 30);
   if (soort === "bestelbon") vervaldatum = b.gewenste_leverdatum;
-  if (soort === "factuur") {
+  if (soort === "factuur" || soort === "aankoopfactuur") {
     const termijn = (b.relaties as { betaaltermijn_dagen: number | null } | null)?.betaaltermijn_dagen ?? ctx.instellingen.betaaltermijn_dagen;
     vervaldatum = plusDagen(datumIso, termijn);
   }
@@ -252,5 +263,5 @@ export async function documentMakenVanBestelling(
   }
 
   ververs(b.id);
-  redirect(`/documenten/${doc.id}`);
+  redirect(documentPad({ id: doc.id, soort }));
 }

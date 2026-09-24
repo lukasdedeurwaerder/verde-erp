@@ -18,6 +18,20 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const d = gegevens.document;
   let bytes: Uint8Array | null = null;
 
+  // Een aankoopfactuur maken we niet zelf: we tonen de pdf van de leverancier.
+  if (d.soort === "aankoopfactuur") {
+    if (!d.pdf_pad) return new NextResponse("Geen bijlage", { status: 404 });
+    const { data } = await supabase.storage.from("documenten").download(d.pdf_pad);
+    if (!data) return new NextResponse("Bijlage niet gevonden", { status: 404 });
+    return new NextResponse(new Uint8Array(await data.arrayBuffer()) as unknown as BodyInit, {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="Aankoopfactuur-${(d.extern_nummer ?? d.nummer ?? "").replace(/[^A-Za-z0-9-]/g, "_")}.pdf"`,
+        "Cache-Control": "private, no-store",
+      },
+    });
+  }
+
   if (d.status !== "concept" && d.pdf_pad) {
     const { data } = await supabase.storage.from("documenten").download(d.pdf_pad);
     if (data) bytes = new Uint8Array(await data.arrayBuffer());

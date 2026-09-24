@@ -89,6 +89,7 @@ export function leesLijnen(json: FormDataEntryValue | null): { lijnen: Lijn[] } 
     if (!Number.isFinite(korting) || korting < 0 || korting > 100) return { fout: `Lijn ${i + 1} (${omschrijving}): de korting moet tussen 0 en 100 liggen.` };
 
     lijnen.push({
+      ...(typeof o.rekening_id === "string" && o.rekening_id ? { rekening_id: o.rekening_id } : {}),
       product_id: typeof o.product_id === "string" && o.product_id ? o.product_id : null,
       omschrijving,
       aantal: cent(aantal),

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { huidigeContext } from "@/lib/sessie";
 import { supabaseServer } from "@/lib/supabase/server";
-import { bestellingNummer, datum, DOCUMENT_LABEL, DOCUMENT_STATUS_KLASSE, DOCUMENT_STATUS_LABEL, DOCUMENTEN_PER_SOORT, EEN_PER_BESTELLING, SOORT_LABEL, STATUS_KLASSE, STATUS_LABEL, vandaag, VERGRENDELT_BESTELLING } from "@/lib/bestelling";
+import { bestellingNummer, datum, DOCUMENT_LABEL, documentPad, DOCUMENT_STATUS_KLASSE, DOCUMENT_STATUS_LABEL, DOCUMENTEN_PER_SOORT, EEN_PER_BESTELLING, SOORT_LABEL, STATUS_KLASSE, STATUS_LABEL, vandaag, VERGRENDELT_BESTELLING } from "@/lib/bestelling";
 import { euro } from "@/lib/geld";
 import type { Bestelling, BestellingSoort, Document, Lijn } from "@/lib/types";
 import { BestellingFormulier, type PersoonKeuze, type RelatieKeuze } from "./Formulier";
@@ -134,7 +134,7 @@ export async function BestellingBewerken({ id, soort }: { id: string | null; soo
                   {documenten.map((d) => (
                     <tr key={d.id}>
                       <td>
-                        <Link href={`/documenten/${d.id}`} className="rij">
+                        <Link href={documentPad(d)} className="rij">
                           {DOCUMENT_LABEL[d.soort]} {d.nummer}
                         </Link>
                         <div className="hulptekst">{datum(d.datum)}</div>
@@ -157,7 +157,7 @@ export async function BestellingBewerken({ id, soort }: { id: string | null; soo
                   Een document neemt de lijnen van deze bestelling over. Bewaar dus eerst je wijzigingen.
                   {soort === "verkoop"
                     ? " De leverbon haalt de goederen uit voorraad zodra hij definitief is."
-                    : " De ontvangstbon zet de goederen in voorraad zodra hij definitief is."}
+                    : " De ontvangstbon zet de goederen in voorraad zodra hij definitief is. De aankoopfactuur komt in het dagboek aankopen."}
                 </p>
               </div>
             )}

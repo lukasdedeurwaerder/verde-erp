@@ -12,6 +12,10 @@ const ONDERDELEN: { pad: string; naam: string; kop?: string }[] = [
   { pad: "/voorraad", naam: "Voorraad" },
   { pad: "/bestellingen", naam: "Bestellingen", kop: "Verkoop en aankoop" },
   { pad: "/documenten", naam: "Documenten" },
+  { pad: "/aankopen", naam: "Aankoopfacturen", kop: "Boekhouding" },
+  { pad: "/bank", naam: "Bank" },
+  { pad: "/dagboeken", naam: "Dagboeken" },
+  { pad: "/rapporten", naam: "Balans en resultaat" },
 ];
 
 const DOCENT: { pad: string; naam: string; kop?: string }[] = [

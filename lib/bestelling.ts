@@ -83,14 +83,31 @@ export function vandaag(): string {
 /** Welke documenten je vanuit een bestelling kunt maken, in deze volgorde. */
 export const DOCUMENTEN_PER_SOORT: Record<BestellingSoort, DocumentSoort[]> = {
   verkoop: ["offerte", "leverbon", "factuur"],
-  aankoop: ["bestelbon", "ontvangstbon"],
+  aankoop: ["bestelbon", "ontvangstbon", "aankoopfactuur"],
 };
 
 /** Hiervan mag er per bestelling maar één lopend zijn (niet geannuleerd). */
-export const EEN_PER_BESTELLING: DocumentSoort[] = ["leverbon", "ontvangstbon", "factuur"];
+export const EEN_PER_BESTELLING: DocumentSoort[] = ["leverbon", "ontvangstbon", "factuur", "aankoopfactuur"];
 
 /** Documenten die, eenmaal definitief, de lijnen van de bestelling vastzetten. */
-export const VERGRENDELT_BESTELLING: DocumentSoort[] = ["leverbon", "ontvangstbon", "factuur"];
+export const VERGRENDELT_BESTELLING: DocumentSoort[] = ["leverbon", "ontvangstbon", "factuur", "aankoopfactuur"];
+
+/** Waar je een document bekijkt: aankoopfacturen hebben een eigen scherm. */
+export function documentPad(d: { id: string; soort: DocumentSoort }): string {
+  return d.soort === "aankoopfactuur" ? `/aankopen/${d.id}` : `/documenten/${d.id}`;
+}
+
+export const DAGBOEK_LABEL: Record<"verkoop" | "aankoop" | "financieel" | "divers", { naam: string; code: string }> = {
+  verkoop: { naam: "Verkopen", code: "VK" },
+  aankoop: { naam: "Aankopen", code: "AK" },
+  financieel: { naam: "Financieel", code: "FI" },
+  divers: { naam: "Diverse", code: "DI" },
+};
+
+/** Boekingsnummer zoals getoond: VK 2026/0003. */
+export function boekingNummer(b: { dagboek: keyof typeof DAGBOEK_LABEL; jaar: number; nummer: number }): string {
+  return `${DAGBOEK_LABEL[b.dagboek].code} ${b.jaar}/${String(b.nummer).padStart(4, "0")}`;
+}
 
 /** Een leverbon of ontvangstbon toont geen prijzen. */
 export function toontPrijzen(soort: DocumentSoort): boolean {
