@@ -231,6 +231,9 @@ async function actie(cookie, pagina, naam, args, formulier) {
       const t = await p.text();
       check(`scherm ${pad.replace(/[0-9a-f-]{36}/, "…")} laadt`, p.status === 200 && t.includes("Actietest"), String(p.status));
     }
+  } catch (e) {
+    // Een fout midden in de test telt als mislukt, ook al ruimen we netjes op.
+    check("test liep volledig door", false, e.message);
   } finally {
     await ruimOp([T]);
     await einde();

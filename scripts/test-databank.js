@@ -197,6 +197,9 @@ const { admin, check, maakTestomgeving, ruimOp, einde } = require("./testhulp");
     check("A uploadt foto in eigen map", !eUp, eUp && eUp.message);
     const { error: eUp2 } = await cA.storage.from("productfotos").upload(`${B.id}/sluip.jpg`, jpeg, { contentType: "image/jpeg" });
     check("A kan niet in map van B uploaden", !!eUp2);
+  } catch (e) {
+    // Een fout midden in de test telt als mislukt, ook al ruimen we netjes op.
+    check("test liep volledig door", false, e.message);
   } finally {
     await ruimOp(bedrijven);
     await einde();
