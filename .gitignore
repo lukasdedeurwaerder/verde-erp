@@ -1,0 +1,20 @@
+node_modules/
+.next/
+out/
+
+# Sleutels. Dit bestand mag NOOIT in git of op GitHub belanden.
+.env
+.env.local
+.env*.local
+
+*.tsbuildinfo
+next-env.d.ts
+
+.DS_Store
+Thumbs.db
+.vercel
+
+# Wachtwoordbestanden horen niet in versiebeheer.
+*wachtwoord*.txt
+*Wachtwoord*.txt
+*password*.txt
