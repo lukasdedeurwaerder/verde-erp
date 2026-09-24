@@ -2,101 +2,141 @@
 //
 //   npm.cmd run test:databank
 //
-// Maakt twee tijdelijke studentenaccounts (één per dochter), controleert
-// dat ze elkaars gegevens niet zien, dat de triggers (nummering,
-// voorraad, documenttotalen, evenwicht van boekingen) werken en dat de
-// opslag per bedrijf afgeschermd is. Ruimt daarna alles weer op.
-// Draai dit niet terwijl studenten aan het werk zijn: de opruimstap
-// verwijdert alle gegevens van Dochter A.
-const fs = require("node:fs");
-const path = require("node:path");
-const map = path.join(__dirname, "..");
-const { createClient } = require("@supabase/supabase-js");
-for (const r of fs.readFileSync(path.join(map, ".env.local"), "utf8").split(/\r?\n/)) { const m = r.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/); if (m) process.env[m[1]] = m[2]; }
-const URL = process.env.NEXT_PUBLIC_SUPABASE_URL, ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const admin = createClient(URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-let fouten = 0;
-const check = (naam, ok, extra = "") => { console.log((ok ? "OK  " : "FOUT") + " " + naam + (extra ? "  (" + extra + ")" : "")); if (!ok) fouten++; };
+// Werkt in twee tijdelijke testbedrijven (zie testhulp.js), controleert
+// de afscherming tussen bedrijven, de triggers en de functies van fase 3
+// (voorraad bij leverbon en ontvangstbon, factuur, creditnota), en ruimt
+// daarna alles op. Veilig om te draaien terwijl er gewerkt wordt.
+
+const { admin, check, maakTestomgeving, ruimOp, einde } = require("./testhulp");
 
 (async () => {
-  const { data: bedrijven } = await admin.from("bedrijven").select("id,naam").order("volgorde");
+  const bedrijven = await maakTestomgeving(2);
   const [A, B] = bedrijven;
-  const ww = "Test-wachtwoord-1234";
-  const mk = async (naam, email, bedrijf) => {
-    const { data, error } = await admin.auth.admin.createUser({ email, password: ww, email_confirm: true, user_metadata: { naam, rol: "student", bedrijf_id: bedrijf } });
-    if (error) throw error; return data.user.id;
-  };
-  const idA = await mk("Test A", "test-a@verde-test.invalid", A.id);
-  const idB = await mk("Test B", "test-b@verde-test.invalid", B.id);
+  const cA = A.client;
+  const cB = B.client;
+
   try {
-    const { data: pA } = await admin.from("profielen").select("*").eq("id", idA).single();
-    check("profiel automatisch aangemaakt met bedrijf en e-mail", pA.bedrijf_id === A.id && pA.email === "test-a@verde-test.invalid" && pA.rol === "student");
+    // ---------- Afscherming ----------
+    const { data: pA } = await admin.from("profielen").select("*").eq("id", A.gebruikerId).single();
+    check("profiel automatisch aangemaakt met bedrijf", pA.bedrijf_id === A.id && pA.rol === "student");
 
-    const cA = createClient(URL, ANON, { auth: { persistSession: false } });
-    const cB = createClient(URL, ANON, { auth: { persistSession: false } });
-    check("student A logt in", !(await cA.auth.signInWithPassword({ email: "test-a@verde-test.invalid", password: ww })).error);
-    check("student B logt in", !(await cB.auth.signInWithPassword({ email: "test-b@verde-test.invalid", password: ww })).error);
+    const { data: klant, error: eK } = await cA.from("relaties").insert({ bedrijf_id: A.id, soort: "klant", naam: "Testklant" }).select().single();
+    check("A maakt klant in eigen bedrijf", !eK, eK && eK.message);
+    const { error: eKB } = await cA.from("relaties").insert({ bedrijf_id: B.id, soort: "klant", naam: "Sluipklant" });
+    check("A kan GEEN klant in bedrijf B maken", !!eKB);
+    const { data: zicht } = await cB.from("relaties").select("id").eq("id", klant.id);
+    check("B ziet de klant van A niet", zicht.length === 0);
 
-    const { data: rA, error: eA } = await cA.from("relaties").insert({ bedrijf_id: A.id, soort: "klant", naam: "Testklant A" }).select().single();
-    check("A maakt klant in eigen bedrijf", !eA, eA && eA.message);
-    const { error: eAB } = await cA.from("relaties").insert({ bedrijf_id: B.id, soort: "klant", naam: "Sluipklant" });
-    check("A kan GEEN klant in bedrijf B maken", !!eAB);
-    const { data: zichtB } = await cB.from("relaties").select("id").eq("id", rA.id);
-    check("B ziet de klant van A niet", zichtB.length === 0);
-    const { data: zichtA } = await cA.from("relaties").select("id").eq("id", rA.id);
-    check("A ziet de eigen klant wel", zichtA.length === 1);
+    await cA.from("profielen").update({ rol: "docent", naam: "Andere naam" }).eq("id", A.gebruikerId);
+    const { data: pA2 } = await admin.from("profielen").select("rol,naam").eq("id", A.gebruikerId).single();
+    check("student wijzigt eigen naam maar niet de rol", pA2.rol === "student" && pA2.naam === "Andere naam");
 
-    await cA.from("profielen").update({ rol: "docent", naam: "Test A2" }).eq("id", idA);
-    const { data: pA2 } = await admin.from("profielen").select("rol,naam").eq("id", idA).single();
-    check("student kan eigen naam wijzigen maar niet de rol", pA2.rol === "student" && pA2.naam === "Test A2", JSON.stringify(pA2));
-    await cA.from("bedrijven").update({ naam: "Gekaapt" }).eq("id", A.id);
-    const { data: bNa } = await admin.from("bedrijven").select("naam").eq("id", A.id).single();
-    check("student kan bedrijfsnaam niet wijzigen", bNa.naam === A.naam);
+    // ---------- Product, voorraad, nummering ----------
+    const { data: prod } = await cA.from("producten").insert({ bedrijf_id: A.id, naam: "Testproduct", verkoopprijs: 10, aankoopprijs: 4, btw_tarief: 21 }).select().single();
+    await cA.from("voorraadmutaties").insert({ bedrijf_id: A.id, product_id: prod.id, aantal: 5, soort: "beginvoorraad" });
+    const voorraad = async () => Number((await cA.from("producten").select("voorraad").eq("id", prod.id).single()).data.voorraad);
+    check("beginvoorraad 5", (await voorraad()) === 5);
 
-    const { data: prod, error: eP } = await cA.from("producten").insert({ bedrijf_id: A.id, naam: "Testproduct", code: "T-1", verkoopprijs: 10, btw_tarief: 21 }).select().single();
-    check("A maakt product", !eP, eP && eP.message);
-    await cA.from("voorraadmutaties").insert([{ bedrijf_id: A.id, product_id: prod.id, aantal: 20, soort: "beginvoorraad" }, { bedrijf_id: A.id, product_id: prod.id, aantal: -3, soort: "levering" }]);
-    const { data: prod2 } = await cA.from("producten").select("voorraad").eq("id", prod.id).single();
-    check("voorraad = som van mutaties (17)", Number(prod2.voorraad) === 17, String(prod2.voorraad));
+    const { data: best } = await cA.from("bestellingen").insert({ bedrijf_id: A.id, soort: "verkoop", relatie_id: klant.id }).select().single();
+    check("bestelling krijgt nummer 1", best.nummer === 1, String(best.nummer));
 
-    const { data: best, error: eBest } = await cA.from("bestellingen").insert({ bedrijf_id: A.id, soort: "verkoop", relatie_id: rA.id }).select().single();
-    check("bestelling krijgt nummer 1", !eBest && best.nummer === 1, eBest ? eBest.message : String(best && best.nummer));
-    const { data: best2 } = await cA.from("bestellingen").insert({ bedrijf_id: A.id, soort: "verkoop", relatie_id: rA.id }).select().single();
-    check("tweede bestelling krijgt nummer 2", best2.nummer === 2);
-    const { data: doc, error: eDoc } = await cA.from("documenten").insert({ bedrijf_id: A.id, soort: "factuur", relatie_id: rA.id, bestelling_id: best.id }).select().single();
-    check("factuur krijgt nummer F-jaar-0001", !eDoc && /^F-\d{4}-0001$/.test(doc.nummer), eDoc ? eDoc.message : String(doc && doc.nummer));
-    await cA.from("documentlijnen").insert([{ document_id: doc.id, product_id: prod.id, omschrijving: "Testproduct", aantal: 2, eenheidsprijs: 10, btw_tarief: 21 }, { document_id: doc.id, omschrijving: "Korting", aantal: 1, eenheidsprijs: 5, btw_tarief: 21, korting_pct: 100 }]);
-    const { data: doc2 } = await cA.from("documenten").select("totaal_excl,totaal_btw,totaal_incl").eq("id", doc.id).single();
-    check("documenttotalen 20 / 4,20 / 24,20", Number(doc2.totaal_excl) === 20 && Number(doc2.totaal_btw) === 4.2 && Number(doc2.totaal_incl) === 24.2, JSON.stringify(doc2));
+    const maakDoc = async (soort, extra = {}) => {
+      const { data, error } = await cA.from("documenten").insert({ bedrijf_id: A.id, soort, relatie_id: klant.id, bestelling_id: best.id, ...extra }).select().single();
+      if (error) return { error };
+      return { data };
+    };
 
+    // ---------- Leverbon: te weinig voorraad ----------
+    const { data: lb1 } = await maakDoc("leverbon");
+    check("leverbon krijgt nummer LB-jaar-0001", /^LB-\d{4}-0001$/.test(lb1.nummer), lb1.nummer);
+    await cA.from("documentlijnen").insert({ document_id: lb1.id, product_id: prod.id, omschrijving: "Testproduct", aantal: 8, eenheidsprijs: 10, btw_tarief: 21 });
+    const { error: eTekort } = await cA.rpc("document_definitief", { p_id: lb1.id });
+    check("leverbon met te weinig voorraad geweigerd", !!eTekort && eTekort.message.includes("Onvoldoende voorraad"), eTekort && eTekort.message);
+    check("voorraad ongewijzigd na weigering", (await voorraad()) === 5);
+
+    const { error: eDubbel } = await maakDoc("leverbon");
+    check("tweede lopende leverbon voor dezelfde bestelling geweigerd", !!eDubbel.error || !!eDubbel);
+
+    // ---------- Leverbon: genoeg voorraad ----------
+    await cA.from("documentlijnen").update({ aantal: 3 }).eq("document_id", lb1.id);
+    const { error: eLb } = await cA.rpc("document_definitief", { p_id: lb1.id });
+    check("leverbon definitief", !eLb, eLb && eLb.message);
+    check("voorraad 5 - 3 = 2", (await voorraad()) === 2, String(await voorraad()));
+    const { data: bNa } = await cA.from("bestellingen").select("status").eq("id", best.id).single();
+    check("bestelling staat op geleverd", bNa.status === "geleverd", bNa.status);
+
+    // ---------- Leverbon annuleren ----------
+    const { error: eAn } = await cA.rpc("document_annuleren", { p_id: lb1.id });
+    check("leverbon annuleren", !eAn, eAn && eAn.message);
+    check("voorraad terug op 5", (await voorraad()) === 5, String(await voorraad()));
+    const { data: bNa2 } = await cA.from("bestellingen").select("status").eq("id", best.id).single();
+    check("bestelling terug op klaar", bNa2.status === "klaar", bNa2.status);
+
+    // ---------- Factuur en creditnota ----------
+    const { data: f } = await maakDoc("factuur");
+    await cA.from("documentlijnen").insert({ document_id: f.id, product_id: prod.id, omschrijving: "Testproduct", aantal: 3, eenheidsprijs: 10, btw_tarief: 21 });
+    const { error: eF } = await cA.rpc("document_definitief", { p_id: f.id });
+    check("factuur definitief", !eF, eF && eF.message);
+    const { data: fNa } = await cA.from("documenten").select("totaal_incl").eq("id", f.id).single();
+    check("factuur 3 x 10 + 21 % = 36,30", Number(fNa.totaal_incl) === 36.3, String(fNa.totaal_incl));
+    const { error: eFan } = await cA.rpc("document_annuleren", { p_id: f.id });
+    check("definitieve factuur annuleren geweigerd", !!eFan && eFan.message.includes("creditnota"), eFan && eFan.message);
+
+    const { error: eZonder } = await cA.from("documenten").insert({ bedrijf_id: A.id, soort: "creditnota", relatie_id: klant.id });
+    check("creditnota zonder factuur geweigerd", !!eZonder);
+    const { error: eFzonder } = await cA.from("documenten").insert({ bedrijf_id: A.id, soort: "factuur", relatie_id: klant.id });
+    check("factuur zonder bestelling geweigerd", !!eFzonder);
+
+    const { data: cn1 } = await maakDoc("creditnota", { bron_document_id: f.id, voorraad_terug: true });
+    await cA.from("documentlijnen").insert({ document_id: cn1.id, product_id: prod.id, omschrijving: "Retour", aantal: 1, eenheidsprijs: 10, btw_tarief: 21 });
+    const { error: eCn } = await cA.rpc("document_definitief", { p_id: cn1.id });
+    check("creditnota met retour definitief", !eCn, eCn && eCn.message);
+    check("voorraad +1 door retour (6)", (await voorraad()) === 6, String(await voorraad()));
+
+    const { data: cn2 } = await maakDoc("creditnota", { bron_document_id: f.id });
+    await cA.from("documentlijnen").insert({ document_id: cn2.id, omschrijving: "Te veel", aantal: 3, eenheidsprijs: 10, btw_tarief: 21 });
+    const { error: eTeVeel } = await cA.rpc("document_definitief", { p_id: cn2.id });
+    check("meer crediteren dan de factuur geweigerd", !!eTeVeel && eTeVeel.message.includes("Te veel"), eTeVeel && eTeVeel.message);
+
+    // ---------- Ontvangstbon ----------
+    const { data: lev } = await cA.from("relaties").insert({ bedrijf_id: A.id, soort: "leverancier", naam: "Testleverancier" }).select().single();
+    const { data: ak } = await cA.from("bestellingen").insert({ bedrijf_id: A.id, soort: "aankoop", relatie_id: lev.id }).select().single();
+    const { data: ob } = await cA.from("documenten").insert({ bedrijf_id: A.id, soort: "ontvangstbon", relatie_id: lev.id, bestelling_id: ak.id }).select().single();
+    await cA.from("documentlijnen").insert({ document_id: ob.id, product_id: prod.id, omschrijving: "Testproduct", aantal: 10, eenheidsprijs: 4, btw_tarief: 21 });
+    const { error: eOb } = await cA.rpc("document_definitief", { p_id: ob.id });
+    check("ontvangstbon definitief", !eOb, eOb && eOb.message);
+    check("voorraad +10 (16)", (await voorraad()) === 16, String(await voorraad()));
+
+    // ---------- B kan niets van A ----------
+    const { error: eBdef } = await cB.rpc("document_definitief", { p_id: cn2.id });
+    check("B kan document van A niet definitief maken", !!eBdef, eBdef && eBdef.message);
+
+    // ---------- Boekhouding: evenwicht en saldi ----------
     const { data: rek } = await admin.from("rekeningen").select("id,nummer").in("nummer", ["400", "700", "451"]);
     const r = Object.fromEntries(rek.map((x) => [x.nummer, x.id]));
-    const { data: boek } = await cA.from("boekingen").insert({ bedrijf_id: A.id, dagboek: "verkoop", omschrijving: "Test", document_id: doc.id }).select().single();
-    const { error: eL1 } = await cA.from("boekingslijnen").insert([{ boeking_id: boek.id, rekening_id: r["400"], debet: 24.2 }, { boeking_id: boek.id, rekening_id: r["700"], credit: 20 }, { boeking_id: boek.id, rekening_id: r["451"], credit: 4.2 }]);
-    check("boeking in evenwicht wordt aanvaard", !eL1, eL1 && eL1.message);
+    const { data: boek } = await cA.from("boekingen").insert({ bedrijf_id: A.id, dagboek: "verkoop", omschrijving: "Test", document_id: f.id }).select().single();
+    const { error: eL1 } = await cA.from("boekingslijnen").insert([
+      { boeking_id: boek.id, rekening_id: r["400"], debet: 36.3 },
+      { boeking_id: boek.id, rekening_id: r["700"], credit: 30 },
+      { boeking_id: boek.id, rekening_id: r["451"], credit: 6.3 },
+    ]);
+    check("boeking in evenwicht aanvaard", !eL1, eL1 && eL1.message);
     const { error: eL2 } = await cA.from("boekingslijnen").insert([{ boeking_id: boek.id, rekening_id: r["400"], debet: 1 }]);
-    check("boeking uit evenwicht wordt geweigerd", !!eL2 && eL2.message.includes("evenwicht"), eL2 && eL2.message);
-    const { data: saldi } = await cA.from("rekeningsaldi").select("nummer,saldo").eq("bedrijf_id", A.id);
-    const s400 = saldi.find((s) => s.nummer === "400"), s700 = saldi.find((s) => s.nummer === "700");
-    check("rekeningsaldi: 400 = 24,20 en 700 = 20", s400 && Number(s400.saldo) === 24.2 && s700 && Number(s700.saldo) === 20, JSON.stringify(saldi));
+    check("boeking uit evenwicht geweigerd", !!eL2 && eL2.message.includes("evenwicht"));
     const { data: saldiB } = await cB.from("rekeningsaldi").select("nummer").eq("bedrijf_id", A.id);
     check("B ziet saldi van A niet", saldiB.length === 0);
 
-    const { error: eUp } = await cA.storage.from("productfotos").upload(A.id + "/" + prod.id + ".jpg", Buffer.from([0xff, 0xd8, 0xff, 0xd9]), { contentType: "image/jpeg", upsert: true });
-    check("A uploadt productfoto in eigen map", !eUp, eUp && eUp.message);
-    const { error: eUp2 } = await cA.storage.from("productfotos").upload(B.id + "/sluip.jpg", Buffer.from([0xff, 0xd8, 0xff, 0xd9]), { contentType: "image/jpeg" });
-    check("A kan NIET in map van B uploaden", !!eUp2);
-    await cA.storage.from("productfotos").remove([A.id + "/" + prod.id + ".jpg"]);
+    // ---------- Opslag ----------
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const { error: eUp } = await cA.storage.from("productfotos").upload(`${A.id}/${prod.id}.jpg`, jpeg, { contentType: "image/jpeg", upsert: true });
+    check("A uploadt foto in eigen map", !eUp, eUp && eUp.message);
+    const { error: eUp2 } = await cA.storage.from("productfotos").upload(`${B.id}/sluip.jpg`, jpeg, { contentType: "image/jpeg" });
+    check("A kan niet in map van B uploaden", !!eUp2);
   } finally {
-    await admin.from("boekingen").delete().eq("bedrijf_id", A.id);
-    await admin.from("documenten").delete().eq("bedrijf_id", A.id);
-    await admin.from("bestellingen").delete().eq("bedrijf_id", A.id);
-    await admin.from("voorraadmutaties").delete().eq("bedrijf_id", A.id);
-    await admin.from("producten").delete().eq("bedrijf_id", A.id);
-    await admin.from("relaties").delete().eq("bedrijf_id", A.id);
-    await admin.from("nummerreeksen").delete().eq("bedrijf_id", A.id);
-    await admin.auth.admin.deleteUser(idA);
-    await admin.auth.admin.deleteUser(idB);
-    console.log(fouten === 0 ? "\nAlles in orde." : "\n" + fouten + " fout(en).");
+    await ruimOp(bedrijven);
+    await einde();
   }
-})().catch((e) => { console.error("Script mislukt:", e.message); process.exit(1); });
+})().catch((e) => {
+  console.error("Script mislukt:", e.message);
+  process.exit(1);
+});

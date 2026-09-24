@@ -1,16 +1,25 @@
 import Link from "next/link";
 import { huidigeContext } from "@/lib/sessie";
 import { supabaseServer } from "@/lib/supabase/server";
-import { datum, DOCUMENT_LABEL, DOCUMENT_STATUS_KLASSE, DOCUMENT_STATUS_LABEL } from "@/lib/bestelling";
+import { datum, DOCUMENT_LABEL, DOCUMENT_STATUS_KLASSE, DOCUMENT_STATUS_LABEL, toontPrijzen } from "@/lib/bestelling";
 import { euro } from "@/lib/geld";
 import { DOCUMENT_SOORTEN, type Document, type DocumentSoort } from "@/lib/types";
 
 export const metadata = { title: "Documenten" };
 
+const MEERVOUD: Partial<Record<DocumentSoort, string>> = {
+  offerte: "Offertes",
+  bestelbon: "Bestelbonnen",
+  leverbon: "Leverbonnen",
+  ontvangstbon: "Ontvangstbonnen",
+  factuur: "Facturen",
+  creditnota: "Creditnota's",
+};
+
 type Rij = Document & { relaties: { naam: string } | null };
 
 // Welke soorten er nu al gemaakt kunnen worden. Elke fase voegt er toe.
-const BESCHIKBAAR: DocumentSoort[] = ["offerte", "bestelbon"];
+const BESCHIKBAAR: DocumentSoort[] = ["offerte", "bestelbon", "leverbon", "ontvangstbon", "factuur", "creditnota"];
 
 export default async function DocumentenPagina({
   searchParams,
@@ -40,7 +49,7 @@ export default async function DocumentenPagina({
       <div className="schermkop">
         <div>
           <h1>Documenten</h1>
-          <p>Offertes en bestelbonnen. Een document maak je vanuit een bestelling.</p>
+          <p>Alle documenten. Je maakt ze vanuit een bestelling; een creditnota vanuit een factuur.</p>
         </div>
       </div>
 
@@ -51,7 +60,7 @@ export default async function DocumentenPagina({
           </Link>
           {BESCHIKBAAR.map((s) => (
             <Link key={s} href={`/documenten?soort=${s}`} className={`knop knop--klein${soort === s ? " knop--primair" : ""}`}>
-              {DOCUMENT_LABEL[s]}s
+              {MEERVOUD[s]}
             </Link>
           ))}
         </span>
@@ -110,8 +119,8 @@ export default async function DocumentenPagina({
                   <td>
                     <span className={DOCUMENT_STATUS_KLASSE[d.status]}>{DOCUMENT_STATUS_LABEL[d.status]}</span>
                   </td>
-                  <td className="getal">{euro(d.totaal_excl)}</td>
-                  <td className="getal">{euro(d.totaal_incl)}</td>
+                  <td className="getal">{toontPrijzen(d.soort) ? euro(d.totaal_excl) : "—"}</td>
+                  <td className="getal">{toontPrijzen(d.soort) ? euro(d.totaal_incl) : "—"}</td>
                 </tr>
               );
             })}

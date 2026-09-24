@@ -71,10 +71,45 @@ export function datum(iso: string | null | undefined): string {
   return `${d}/${m}/${j}`;
 }
 
-/** Vandaag als 2026-09-24, in lokale tijd. */
+/**
+ * Vandaag als 2026-09-24, in Belgische tijd. Niet de tijd van de server:
+ * die draait bij Vercel op UTC, en dan zou een document dat om half één
+ * 's nachts gemaakt wordt de datum van gisteren krijgen.
+ */
 export function vandaag(): string {
-  const n = new Date();
-  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Brussels" }).format(new Date());
+}
+
+/** Welke documenten je vanuit een bestelling kunt maken, in deze volgorde. */
+export const DOCUMENTEN_PER_SOORT: Record<BestellingSoort, DocumentSoort[]> = {
+  verkoop: ["offerte", "leverbon", "factuur"],
+  aankoop: ["bestelbon", "ontvangstbon"],
+};
+
+/** Hiervan mag er per bestelling maar één lopend zijn (niet geannuleerd). */
+export const EEN_PER_BESTELLING: DocumentSoort[] = ["leverbon", "ontvangstbon", "factuur"];
+
+/** Documenten die, eenmaal definitief, de lijnen van de bestelling vastzetten. */
+export const VERGRENDELT_BESTELLING: DocumentSoort[] = ["leverbon", "ontvangstbon", "factuur"];
+
+/** Een leverbon of ontvangstbon toont geen prijzen. */
+export function toontPrijzen(soort: DocumentSoort): boolean {
+  return soort !== "leverbon" && soort !== "ontvangstbon";
+}
+
+/**
+ * Gestructureerde mededeling voor een factuur: +++123/4567/89012+++.
+ *
+ * Tien cijfers plus twee controlecijfers (rest bij deling door 97, en 97
+ * als die rest nul is). Het eerste cijfer is het bedrijf: beide dochters
+ * delen één bankrekening, en zo is aan elke betaling te zien voor welke
+ * dochter ze bestemd is, ook als hun factuurnummers gelijk zijn.
+ */
+export function gestructureerdeMededeling(bedrijfVolgorde: number, jaar: number, volgnummer: number): string {
+  const basis = `${bedrijfVolgorde % 10}${String(jaar % 1000).padStart(3, "0")}${String(volgnummer % 1000000).padStart(6, "0")}`;
+  const rest = Number(BigInt(basis) % 97n);
+  const cijfers = basis + String(rest === 0 ? 97 : rest).padStart(2, "0");
+  return `+++${cijfers.slice(0, 3)}/${cijfers.slice(3, 7)}/${cijfers.slice(7)}+++`;
 }
 
 /** Een aantal dagen bij een ISO-datum optellen. */

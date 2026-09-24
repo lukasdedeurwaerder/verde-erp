@@ -10,7 +10,8 @@
     "migreer": "node scripts/migreer.js",
     "docent": "node scripts/maak-gebruiker.js",
     "test:databank": "node scripts/test-databank.js",
-    "test:live": "node scripts/test-live.js"
+    "test:acties": "node scripts/test-acties.js",
+    "test:live": "node scripts/test-acties.js https://verde-ondernemen.vercel.app"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.9.0",

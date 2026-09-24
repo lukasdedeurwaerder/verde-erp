@@ -161,6 +161,8 @@ export type Document = {
   totaal_btw: number;
   totaal_incl: number;
   betaald: number;
+  /** Creditnota: goederen gaan terug in voorraad (retour). */
+  voorraad_terug: boolean;
   opmerking: string | null;
   pdf_pad: string | null;
   aangemaakt_op: string;

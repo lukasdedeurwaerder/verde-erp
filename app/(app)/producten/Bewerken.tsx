@@ -50,6 +50,11 @@ export async function ProductBewerken({ id }: { id: string | null }) {
           <p>{bedrijf?.naam}</p>
         </div>
         <div className="schermkop__acties">
+          {product?.voorraad_bijhouden && (
+            <Link href={`/voorraad/${product.id}`} className="knop">
+              Voorraad bekijken
+            </Link>
+          )}
           <Link href="/producten" className="knop">
             ← Lijst
           </Link>

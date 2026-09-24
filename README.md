@@ -15,7 +15,7 @@ ziet en beheert alles.
 
 1. ✅ Opzet, login, rollen, bedrijfskeuze, fiches (klanten, leveranciers, producten met foto)
 2. ✅ Bestellingen met verantwoordelijke en kanban, offertes en bestelbonnen als pdf
-3. Leverbonnen, ontvangstbonnen, voorraad, facturen en creditnota's als pdf
+3. ✅ Leverbonnen, ontvangstbonnen, voorraad, facturen en creditnota's als pdf
 4. Dagboeken aankopen, verkopen en financieel, met live balans en resultatenrekening
 5. Docentenpaneel (rekeningenstelsel, logboek) en afwerking
 
@@ -47,3 +47,21 @@ Het datamodel voor alle fases staat al volledig in
 Elke tabel heeft een kolom `bedrijf_id`. Row Level Security laat een
 student alleen rijen van het eigen bedrijf zien en bewerken; de docent
 ziet alles. Die regel staat in de databank zelf, niet alleen in de app.
+
+## Testen
+
+Alle tests werken in tijdelijke, onzichtbare testbedrijven die na afloop
+volledig verdwijnen. Ze zijn dus veilig terwijl studenten aan het werk zijn.
+
+```bash
+npm.cmd run test:databank
+```
+
+Test beveiliging, voorraad, facturen en creditnota's rechtstreeks in de databank.
+
+```bash
+npm.cmd run test:live
+```
+
+Doet op de echte site wat de knoppen doen: leverbon, factuur, creditnota, voorraad.
+Vraagt een lokale build (`npm.cmd run build`) om de acties te herkennen.

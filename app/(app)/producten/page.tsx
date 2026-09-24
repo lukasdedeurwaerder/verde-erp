@@ -125,9 +125,9 @@ export default async function ProductenPagina({
                   <td className="getal">{aantal(p.btw_tarief)} %</td>
                   <td className="getal">
                     {p.voorraad_bijhouden ? (
-                      <span className={laag ? "badge badge--waarschuwing" : undefined}>
+                      <Link href={`/voorraad/${p.id}`} className={laag ? "badge badge--waarschuwing" : undefined} style={laag ? undefined : { color: "inherit" }}>
                         {aantal(p.voorraad)} {p.eenheid}
-                      </span>
+                      </Link>
                     ) : (
                       <span className="hulptekst">dienst</span>
                     )}

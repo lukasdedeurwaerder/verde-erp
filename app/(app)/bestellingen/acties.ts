@@ -6,8 +6,8 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { huidigeContext, vereistBedrijf } from "@/lib/sessie";
 import { tekst } from "@/lib/formulier";
 import { leesLijnen } from "@/lib/lijnen";
-import { plusDagen, SOORT_LABEL } from "@/lib/bestelling";
-import { BESTELLING_STATUSSEN, type BestellingSoort, type BestellingStatus } from "@/lib/types";
+import { DOCUMENT_LABEL, DOCUMENTEN_PER_SOORT, EEN_PER_BESTELLING, plusDagen, SOORT_LABEL, vandaag, VERGRENDELT_BESTELLING } from "@/lib/bestelling";
+import { BESTELLING_STATUSSEN, type BestellingSoort, type BestellingStatus, type DocumentSoort } from "@/lib/types";
 
 export type BestellingStatusResultaat = { fout?: string };
 
@@ -47,19 +47,25 @@ export async function bestellingOpslaan(
   const leverdatum = tekst(form, "gewenste_leverdatum");
   if (leverdatum && !/^\d{4}-\d{2}-\d{2}$/.test(leverdatum)) return { fout: "Ongeldige leverdatum." };
 
-  const gelezen = leesLijnen(form.get("lijnen"));
-  if ("fout" in gelezen) return { fout: gelezen.fout };
-  if (gelezen.lijnen.length === 0) return { fout: "Voeg minstens één lijn toe." };
-
   // Bedrijf: van de bestaande bestelling, of het actieve bedrijf.
+  // Een bestelling met een definitieve leverbon, ontvangstbon of factuur
+  // is vergrendeld: klant en lijnen liggen dan vast, want die staan al
+  // op een document dat de klant kreeg of dat de voorraad veranderde.
   let bedrijfId: string;
   let gebruikerId: string;
+  let vergrendeld = false;
   if (id) {
     const ctx = await huidigeContext();
     gebruikerId = ctx.gebruikerId;
-    const { data } = await supabase.from("bestellingen").select("bedrijf_id, soort").eq("id", id).maybeSingle();
+    const { data } = await supabase.from("bestellingen").select("bedrijf_id, soort, relatie_id, documenten(soort, status)").eq("id", id).maybeSingle();
     if (!data) return { fout: "Bestelling niet gevonden." };
     bedrijfId = data.bedrijf_id;
+    vergrendeld = ((data.documenten ?? []) as { soort: DocumentSoort; status: string }[]).some(
+      (d) => VERGRENDELT_BESTELLING.includes(d.soort) && d.status === "definitief",
+    );
+    if (vergrendeld && relatieId !== data.relatie_id) {
+      return { fout: "De klant of leverancier kan niet meer veranderen: er is al een definitief document." };
+    }
   } else {
     try {
       const ctx = await vereistBedrijf();
@@ -84,6 +90,10 @@ export async function bestellingOpslaan(
   if (relatie.soort !== verwacht && relatie.soort !== "beide") {
     return { fout: `Deze fiche is geen ${verwacht}. Pas eerst de soort aan op de fiche.` };
   }
+
+  const gelezen = leesLijnen(form.get("lijnen"));
+  if ("fout" in gelezen) return { fout: gelezen.fout };
+  if (!vergrendeld && gelezen.lijnen.length === 0) return { fout: "Voeg minstens één lijn toe." };
 
   const verantwoordelijkeId = tekst(form, "verantwoordelijke_id");
   const statusRuw = tekst(form, "status");
@@ -111,6 +121,11 @@ export async function bestellingOpslaan(
       .single();
     if (error) return { fout: error.message };
     bestellingId = data.id;
+  }
+
+  if (vergrendeld) {
+    ververs(bestellingId!);
+    redirect(`/bestellingen/${bestellingId}`);
   }
 
   // Lijnen vervangen.
@@ -153,28 +168,47 @@ export async function bestellingVerwijderen(id: string): Promise<BestellingStatu
 }
 
 /**
- * Een offerte (verkoop) of bestelbon (aankoop) maken van een bestelling.
+ * Een document maken vanuit een bestelling: offerte, leverbon of factuur
+ * bij een verkooporder; bestelbon of ontvangstbon bij een aankooporder.
+ *
  * De lijnen worden gekopieerd: het document is een momentopname. Wijzigt
- * de bestelling later, dan maak je een nieuw document of vernieuw je de
- * lijnen vanuit het documentscherm zolang het concept is.
+ * de bestelling nog, dan vernieuw je de lijnen vanuit het documentscherm
+ * zolang het document een concept is.
  */
-export async function documentMakenVanBestelling(bestellingId: string): Promise<BestellingStatusResultaat> {
+export async function documentMakenVanBestelling(
+  bestellingId: string,
+  soort: DocumentSoort,
+): Promise<BestellingStatusResultaat> {
   const ctx = await huidigeContext();
   const supabase = await supabaseServer();
 
   const { data: b } = await supabase
     .from("bestellingen")
-    .select("*, bestellijnen(*)")
+    .select("*, bestellijnen(*), relaties(betaaltermijn_dagen), documenten(soort, status)")
     .eq("id", bestellingId)
     .maybeSingle();
   if (!b) return { fout: "Bestelling niet gevonden." };
   const bestellingSoort = b.soort as string;
   if (!isSoort(bestellingSoort)) return { fout: "Onbekende soort bestelling." };
   if (b.status === "geannuleerd") return { fout: "Deze bestelling is geannuleerd." };
+  if (!DOCUMENTEN_PER_SOORT[bestellingSoort].includes(soort)) {
+    return { fout: `Een ${DOCUMENT_LABEL[soort].toLowerCase()} hoort niet bij een ${SOORT_LABEL[bestellingSoort].enkel}.` };
+  }
 
-  const soort = SOORT_LABEL[bestellingSoort].document;
-  const vandaagIso = new Date().toISOString().slice(0, 10);
-  const vervaldatum = soort === "offerte" ? plusDagen(vandaagIso, 30) : b.gewenste_leverdatum;
+  const bestaande = (b.documenten ?? []) as { soort: DocumentSoort; status: string }[];
+  if (EEN_PER_BESTELLING.includes(soort) && bestaande.some((d) => d.soort === soort && d.status !== "geannuleerd")) {
+    return { fout: `Er is al een ${DOCUMENT_LABEL[soort].toLowerCase()} voor deze bestelling. Annuleer die eerst als je een nieuwe wilt.` };
+  }
+  if ((b.bestellijnen ?? []).length === 0) return { fout: "Deze bestelling heeft nog geen lijnen." };
+
+  const datumIso = vandaag();
+  let vervaldatum: string | null = null;
+  if (soort === "offerte") vervaldatum = plusDagen(datumIso, 30);
+  if (soort === "bestelbon") vervaldatum = b.gewenste_leverdatum;
+  if (soort === "factuur") {
+    const termijn = (b.relaties as { betaaltermijn_dagen: number | null } | null)?.betaaltermijn_dagen ?? ctx.instellingen.betaaltermijn_dagen;
+    vervaldatum = plusDagen(datumIso, termijn);
+  }
 
   const { data: doc, error } = await supabase
     .from("documenten")
@@ -183,15 +217,20 @@ export async function documentMakenVanBestelling(bestellingId: string): Promise<
       soort,
       bestelling_id: b.id,
       relatie_id: b.relatie_id,
-      datum: vandaagIso,
-      jaar: Number(vandaagIso.slice(0, 4)),
+      datum: datumIso,
+      jaar: Number(datumIso.slice(0, 4)),
       vervaldatum,
       opmerking: b.opmerking,
       aangemaakt_door: ctx.gebruikerId,
     })
     .select("id")
     .single();
-  if (error) return { fout: error.message };
+  if (error) {
+    if (error.message.includes("een_actief_document_per_bestelling")) {
+      return { fout: `Er is al een ${DOCUMENT_LABEL[soort].toLowerCase()} voor deze bestelling.` };
+    }
+    return { fout: error.message };
+  }
 
   type L = { product_id: string | null; omschrijving: string; aantal: number; eenheidsprijs: number; btw_tarief: number; korting_pct: number; volgorde: number };
   const lijnen = ((b.bestellijnen ?? []) as L[]).map((l) => ({
@@ -204,12 +243,10 @@ export async function documentMakenVanBestelling(bestellingId: string): Promise<
     korting_pct: l.korting_pct,
     volgorde: l.volgorde,
   }));
-  if (lijnen.length > 0) {
-    const { error: lijnFout } = await supabase.from("documentlijnen").insert(lijnen);
-    if (lijnFout) return { fout: lijnFout.message };
-  }
+  const { error: lijnFout } = await supabase.from("documentlijnen").insert(lijnen);
+  if (lijnFout) return { fout: lijnFout.message };
 
-  // Een nieuwe bestelling die een offerte krijgt, is "in behandeling".
+  // Een nieuwe bestelling waar al een document voor is, is "in behandeling".
   if (b.status === "nieuw") {
     await supabase.from("bestellingen").update({ status: "in_behandeling" }).eq("id", b.id);
   }

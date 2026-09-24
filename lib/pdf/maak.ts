@@ -3,7 +3,7 @@ import "server-only";
 import { createElement } from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { bestellingNummer, DOCUMENT_LABEL } from "@/lib/bestelling";
+import { bestellingNummer, DOCUMENT_LABEL, gestructureerdeMededeling } from "@/lib/bestelling";
 import type { Bedrijf, Document, Instellingen, Lijn, Relatie } from "@/lib/types";
 import { DocumentPdf, type PdfGegevens } from "./DocumentPdf";
 
@@ -31,6 +31,12 @@ export async function haalPdfGegevens(supabase: SupabaseClient, documentId: stri
   };
   const { documentlijnen, relaties, bedrijven, bestellingen, ...document } = d as unknown as Rij;
 
+  let bron: PdfGegevens["bron"] = null;
+  if (document.bron_document_id) {
+    const { data: b } = await supabase.from("documenten").select("nummer, datum").eq("id", document.bron_document_id).maybeSingle();
+    bron = b ?? null;
+  }
+
   return {
     document,
     lijnen: [...(documentlijnen ?? [])].sort((a, b) => a.volgorde - b.volgorde),
@@ -39,6 +45,11 @@ export async function haalPdfGegevens(supabase: SupabaseClient, documentId: stri
     instellingen: instellingen as Instellingen,
     bestellingNummer: bestellingen ? bestellingNummer(bestellingen) : null,
     verantwoordelijke: bestellingen?.verantwoordelijke?.naam ?? null,
+    bron,
+    mededeling:
+      document.soort === "factuur" && document.volgnummer
+        ? gestructureerdeMededeling(bedrijven.volgorde, document.jaar, document.volgnummer)
+        : null,
   };
 }
 

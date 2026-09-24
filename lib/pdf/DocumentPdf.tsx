@@ -1,5 +1,5 @@
 import { Document as PdfDocument, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { datum, DOCUMENT_LABEL } from "@/lib/bestelling";
+import { datum, DOCUMENT_LABEL, toontPrijzen } from "@/lib/bestelling";
 import { euro } from "@/lib/geld";
 import { lijnExcl, totalen } from "@/lib/lijnen";
 import type { Bedrijf, Document, DocumentSoort, Instellingen, Lijn, Relatie } from "@/lib/types";
@@ -18,6 +18,10 @@ export type PdfGegevens = {
   /** Het nummer van de bestelling waar het document uit komt, bv. 2026-0007. */
   bestellingNummer: string | null;
   verantwoordelijke: string | null;
+  /** Creditnota: de factuur waarop ze betrekking heeft. */
+  bron: { nummer: string | null; datum: string } | null;
+  /** Factuur: de gestructureerde mededeling voor de betaling. */
+  mededeling: string | null;
 };
 
 const s = StyleSheet.create({
@@ -48,6 +52,11 @@ const s = StyleSheet.create({
   totaalRij: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 },
   totaalIncl: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 4, borderTopWidth: 1, borderTopColor: "#16181d", marginTop: 4, fontFamily: "Helvetica-Bold", fontSize: 11 },
   opmerking: { marginTop: 24 },
+  betaling: { marginTop: 18, padding: 10, borderWidth: 0.5, borderColor: "#d8dce4", borderRadius: 4, width: 300 },
+  betaalRij: { flexDirection: "row", marginBottom: 2 },
+  betaalLabel: { width: 130, color: "#5b6170" },
+  handtekeningen: { flexDirection: "row", justifyContent: "space-between", marginTop: 40 },
+  handtekening: { width: "45%", borderTopWidth: 0.5, borderTopColor: "#16181d", paddingTop: 4, fontSize: 9, color: "#5b6170" },
   voet: { position: "absolute", left: 48, right: 48, bottom: 32, fontSize: 8, color: "#8f95a3", textAlign: "center", borderTopWidth: 0.5, borderTopColor: "#e7eaf0", paddingTop: 8, lineHeight: 1.4 },
 });
 
@@ -55,6 +64,7 @@ const ONDERSCHRIFT: Partial<Record<DocumentSoort, string>> = {
   offerte: "Deze offerte is geldig tot de vermelde datum. Prijzen zijn in euro, exclusief btw tenzij anders vermeld.",
   bestelbon: "Gelieve deze bestelbon te bevestigen en de gewenste leverdatum te respecteren.",
   leverbon: "Gelieve de goederen bij ontvangst te controleren en de leverbon te ondertekenen.",
+  ontvangstbon: "Intern document: bevestiging van de ontvangen goederen.",
   factuur: "Gelieve te betalen voor de vervaldatum met vermelding van het factuurnummer.",
   creditnota: "Dit bedrag wordt in mindering gebracht op de vermelde factuur.",
 };
@@ -68,11 +78,12 @@ function adres(r: { straat: string | null; postcode: string | null; gemeente: st
   return regels;
 }
 
-export function DocumentPdf({ document: d, lijnen, relatie, bedrijf, instellingen, bestellingNummer, verantwoordelijke }: PdfGegevens) {
+export function DocumentPdf({ document: d, lijnen, relatie, bedrijf, instellingen, bestellingNummer, verantwoordelijke, bron, mededeling }: PdfGegevens) {
   const som = totalen(lijnen);
   const titel = DOCUMENT_LABEL[d.soort];
   const concept = d.status !== "definitief";
   const vervalLabel = d.soort === "offerte" ? "Geldig tot" : d.soort === "bestelbon" ? "Gewenste levering" : "Vervaldatum";
+  const prijzen = toontPrijzen(d.soort);
   const naarLabel = d.soort === "bestelbon" || d.soort === "ontvangstbon" ? "Leverancier" : "Klant";
 
   return (
@@ -117,6 +128,14 @@ export function DocumentPdf({ document: d, lijnen, relatie, bedrijf, instellinge
                 <Text>{datum(d.vervaldatum)}</Text>
               </View>
             )}
+            {bron && (
+              <View style={s.gegevensRij}>
+                <Text style={s.gegevensLabel}>Betreft factuur</Text>
+                <Text>
+                  {bron.nummer} van {datum(bron.datum)}
+                </Text>
+              </View>
+            )}
             {bestellingNummer && (
               <View style={s.gegevensRij}>
                 <Text style={s.gegevensLabel}>Bestelling</Text>
@@ -136,23 +155,32 @@ export function DocumentPdf({ document: d, lijnen, relatie, bedrijf, instellinge
           <View style={s.kopRij}>
             <Text style={[s.cOms, s.kopCel]}>Omschrijving</Text>
             <Text style={[s.cAantal, s.kopCel]}>Aantal</Text>
-            <Text style={[s.cPrijs, s.kopCel]}>Prijs</Text>
-            <Text style={[s.cKorting, s.kopCel]}>Korting</Text>
-            <Text style={[s.cBtw, s.kopCel]}>Btw</Text>
-            <Text style={[s.cTotaal, s.kopCel]}>Totaal</Text>
+            {prijzen && (
+              <>
+                <Text style={[s.cPrijs, s.kopCel]}>Prijs</Text>
+                <Text style={[s.cKorting, s.kopCel]}>Korting</Text>
+                <Text style={[s.cBtw, s.kopCel]}>Btw</Text>
+                <Text style={[s.cTotaal, s.kopCel]}>Totaal</Text>
+              </>
+            )}
           </View>
           {lijnen.map((l, i) => (
             <View key={l.id ?? i} style={s.rij} wrap={false}>
               <Text style={s.cOms}>{l.omschrijving}</Text>
               <Text style={s.cAantal}>{String(l.aantal).replace(".", ",")}</Text>
-              <Text style={s.cPrijs}>{euro(l.eenheidsprijs)}</Text>
-              <Text style={s.cKorting}>{l.korting_pct ? `${String(l.korting_pct).replace(".", ",")} %` : ""}</Text>
-              <Text style={s.cBtw}>{l.btw_tarief} %</Text>
-              <Text style={s.cTotaal}>{euro(lijnExcl(l))}</Text>
+              {prijzen && (
+                <>
+                  <Text style={s.cPrijs}>{euro(l.eenheidsprijs)}</Text>
+                  <Text style={s.cKorting}>{l.korting_pct ? `${String(l.korting_pct).replace(".", ",")} %` : ""}</Text>
+                  <Text style={s.cBtw}>{l.btw_tarief} %</Text>
+                  <Text style={s.cTotaal}>{euro(lijnExcl(l))}</Text>
+                </>
+              )}
             </View>
           ))}
         </View>
 
+        {prijzen && (
         <View style={s.totalen}>
           <View style={s.totaalRij}>
             <Text>Totaal excl. btw</Text>
@@ -169,6 +197,42 @@ export function DocumentPdf({ document: d, lijnen, relatie, bedrijf, instellinge
             <Text>{euro(som.incl)}</Text>
           </View>
         </View>
+        )}
+
+        {d.soort === "factuur" && (
+          <View style={s.betaling} wrap={false}>
+            <Text style={s.blokTitel}>Betaling</Text>
+            <View style={s.betaalRij}>
+              <Text style={s.betaalLabel}>Te betalen</Text>
+              <Text style={{ fontFamily: "Helvetica-Bold" }}>{euro(som.incl)}</Text>
+            </View>
+            {d.vervaldatum && (
+              <View style={s.betaalRij}>
+                <Text style={s.betaalLabel}>Uiterlijk op</Text>
+                <Text>{datum(d.vervaldatum)}</Text>
+              </View>
+            )}
+            {instellingen.iban && (
+              <View style={s.betaalRij}>
+                <Text style={s.betaalLabel}>Rekeningnummer</Text>
+                <Text>{instellingen.iban}</Text>
+              </View>
+            )}
+            {mededeling && (
+              <View style={s.betaalRij}>
+                <Text style={s.betaalLabel}>Mededeling</Text>
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>{mededeling}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {!prijzen && (
+          <View style={s.handtekeningen} wrap={false}>
+            <Text style={s.handtekening}>Voor {d.soort === "leverbon" ? "levering" : "ontvangst"}: naam en handtekening</Text>
+            <Text style={s.handtekening}>Datum</Text>
+          </View>
+        )}
 
         {d.opmerking && (
           <View style={s.opmerking}>

@@ -50,7 +50,11 @@ export const huidigeContext = cache(async (): Promise<Context> => {
     redirect("/login?reden=geen-profiel");
   }
 
-  const lijst = (bedrijven ?? []) as Bedrijf[];
+  // Alleen actieve bedrijven in de keuze. Een inactief bedrijf (bv. een
+  // tijdelijk testbedrijf) verschijnt niet, behalve voor wie erin werkt.
+  const lijst = ((bedrijven ?? []) as Bedrijf[]).filter(
+    (b) => b.actief || b.id === profiel.bedrijf_id,
+  );
   const isDocent = profiel.rol === "docent";
 
   let bedrijf: Bedrijf | null;

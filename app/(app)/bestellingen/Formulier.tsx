@@ -47,7 +47,9 @@ export function BestellingFormulier({
   vandaag,
   opslaan,
   verwijderen,
+  vergrendeld = false,
 }: {
+  vergrendeld?: boolean;
   soort: BestellingSoort;
   bestelling: Bestelling | null;
   lijnen: Lijn[];
@@ -67,7 +69,6 @@ export function BestellingFormulier({
   const nieuw = bestelling === null;
   const b = bestelling;
   const t = SOORT_LABEL[soort];
-  const vergrendeld = b?.status === "gefactureerd";
 
   return (
     <div className="kaart">
@@ -78,13 +79,17 @@ export function BestellingFormulier({
           </p>
         )}
         {vergrendeld && (
-          <p className="melding-info">Deze bestelling is gefactureerd. De lijnen liggen vast.</p>
+          <p className="melding-info">
+            Er is al een definitieve leverbon, ontvangstbon of factuur. {t.relatie} en lijnen liggen
+            daarom vast. Verantwoordelijke, leverdatum, status en opmerking kun je nog wijzigen.
+          </p>
         )}
 
         <div className="formulier__kolommen formulier__kolommen--3">
           <div className="formulier__rij" style={{ gridColumn: "span 2" }}>
             <label htmlFor="relatie_id">{t.relatie} *</label>
-            <select id="relatie_id" name="relatie_id" className="veld" defaultValue={b?.relatie_id ?? ""} required>
+            {vergrendeld && <input type="hidden" name="relatie_id" value={b?.relatie_id ?? ""} />}
+            <select id="relatie_id" name={vergrendeld ? undefined : "relatie_id"} className="veld" defaultValue={b?.relatie_id ?? ""} required disabled={vergrendeld}>
               <option value="">— kies —</option>
               {relaties.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -145,7 +150,7 @@ export function BestellingFormulier({
         </div>
 
         <div className="formulier__rij">
-          <label htmlFor="opmerking">Opmerking (komt op de {t.documentLabel.toLowerCase()})</label>
+          <label htmlFor="opmerking">Opmerking (komt op de documenten)</label>
           <textarea id="opmerking" name="opmerking" className="veld" defaultValue={b?.opmerking ?? ""} />
         </div>
 

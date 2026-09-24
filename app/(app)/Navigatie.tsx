@@ -9,6 +9,7 @@ const ONDERDELEN: { pad: string; naam: string; kop?: string }[] = [
   { pad: "/klanten", naam: "Klanten", kop: "Fiches" },
   { pad: "/leveranciers", naam: "Leveranciers" },
   { pad: "/producten", naam: "Producten" },
+  { pad: "/voorraad", naam: "Voorraad" },
   { pad: "/bestellingen", naam: "Bestellingen", kop: "Verkoop en aankoop" },
   { pad: "/documenten", naam: "Documenten" },
 ];

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { huidigeContext } from "@/lib/sessie";
 import { supabaseServer } from "@/lib/supabase/server";
-import { bestellingNummer, datum, DOCUMENT_LABEL, DOCUMENT_STATUS_KLASSE, DOCUMENT_STATUS_LABEL, SOORT_LABEL, STATUS_KLASSE, STATUS_LABEL, vandaag } from "@/lib/bestelling";
+import { bestellingNummer, datum, DOCUMENT_LABEL, DOCUMENT_STATUS_KLASSE, DOCUMENT_STATUS_LABEL, DOCUMENTEN_PER_SOORT, EEN_PER_BESTELLING, SOORT_LABEL, STATUS_KLASSE, STATUS_LABEL, vandaag, VERGRENDELT_BESTELLING } from "@/lib/bestelling";
 import { euro } from "@/lib/geld";
 import type { Bestelling, BestellingSoort, Document, Lijn } from "@/lib/types";
 import { BestellingFormulier, type PersoonKeuze, type RelatieKeuze } from "./Formulier";
@@ -73,6 +73,12 @@ export async function BestellingBewerken({ id, soort }: { id: string | null; soo
   ]);
 
   const bedrijf = ctx.bedrijven.find((b) => b.id === bedrijfId);
+  const vergrendeld = documenten.some((d) => VERGRENDELT_BESTELLING.includes(d.soort) && d.status === "definitief");
+  // Welke documenten kunnen er nog bij? Van een leverbon, ontvangstbon of
+  // factuur mag er maar één lopend zijn.
+  const nogTeMaken = DOCUMENTEN_PER_SOORT[soort].filter(
+    (s) => !(EEN_PER_BESTELLING.includes(s) && documenten.some((d) => d.soort === s && d.status !== "geannuleerd")),
+  );
   const relatieNaam = bestelling ? (relaties ?? []).find((r) => r.id === bestelling!.relatie_id)?.naam : null;
 
   return (
@@ -112,6 +118,7 @@ export async function BestellingBewerken({ id, soort }: { id: string | null; soo
           vandaag={vandaag()}
           opslaan={bestellingOpslaan.bind(null, bestelling?.id ?? null, soort)}
           verwijderen={bestelling ? bestellingVerwijderen.bind(null, bestelling.id) : undefined}
+          vergrendeld={vergrendeld}
         />
 
         {bestelling && (
@@ -141,8 +148,18 @@ export async function BestellingBewerken({ id, soort }: { id: string | null; soo
                 </tbody>
               </table>
             )}
-            {bestelling.status !== "geannuleerd" && (
-              <MaakDocumentKnop bestellingId={bestelling.id} label={t.documentLabel} />
+            {bestelling.status !== "geannuleerd" && nogTeMaken.length > 0 && (
+              <div className="formulier" style={{ marginTop: 14, gap: 8 }}>
+                {nogTeMaken.map((s, i) => (
+                  <MaakDocumentKnop key={s} bestellingId={bestelling!.id} soort={s} label={DOCUMENT_LABEL[s]} primair={i === 0} />
+                ))}
+                <p className="hulptekst">
+                  Een document neemt de lijnen van deze bestelling over. Bewaar dus eerst je wijzigingen.
+                  {soort === "verkoop"
+                    ? " De leverbon haalt de goederen uit voorraad zodra hij definitief is."
+                    : " De ontvangstbon zet de goederen in voorraad zodra hij definitief is."}
+                </p>
+              </div>
             )}
           </div>
         )}
