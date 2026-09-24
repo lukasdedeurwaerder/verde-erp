@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { huidigeContext } from "@/lib/sessie";
 import { BedrijfKeuze } from "./BedrijfKeuze";
 import { Navigatie } from "./Navigatie";
@@ -24,7 +25,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <span>
             <strong>{ctx.profiel.naam}</strong>
             <br />
-            {ctx.isDocent ? "Docent" : "Student"}
+            {ctx.isDocent ? "Docent" : "Student"} · <Link href="/wachtwoord">wachtwoord</Link>
           </span>
           <form action={uitloggen}>
             <button type="submit" className="knop knop--klein">

@@ -31,7 +31,8 @@ async function main() {
     process.exit(1);
   }
 
-  const sql = postgres(url, { ssl: "require", max: 1 });
+  // onnotice: Postgres-meldingen als "extension already exists" niet tonen.
+  const sql = postgres(url, { ssl: "require", max: 1, onnotice: () => {} });
 
   try {
     await sql`create table if not exists _migraties (naam text primary key, uitgevoerd_op timestamptz not null default now())`;
